@@ -1,0 +1,14 @@
+{
+  "listen": ":8080",
+  "baseURL": "http://localhost:8080",
+  "oidcIssuer": "https://id.example.test",
+  "oidcClientID": "syncthing-server",
+  "syncthingURL": "http://127.0.0.1:8384",
+  "syncthingMajor": 2,
+  "storageRoot": "/data/users",
+  "databasePath": "/data/wrapper.sqlite",
+  "registrationEnabled": true,
+  "admins": [
+    {"issuer": "https://id.example.test", "subject": "admin-subject-id"}
+  ]
+}

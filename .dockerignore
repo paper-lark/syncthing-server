@@ -1,0 +1,7 @@
+.git
+.claude
+.scratch
+*.sqlite
+*.sqlite-*
+.env
+config.json
