@@ -64,7 +64,7 @@ func New(cfg config.Config, users *store.Store, daemon *syncthing.Client, oidcPr
 	mux.HandleFunc("POST /devices/{id}/delete", a.deleteDevice)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
 		w.Header().Set("Cache-Control", "no-store")
 		mux.ServeHTTP(w, r)
@@ -185,13 +185,26 @@ func (a *app) auth(w http.ResponseWriter, r *http.Request, write bool) (store.Us
 			http.Error(w, "invalid CSRF token", 403)
 			return store.User{}, "", false
 		}
-		if origin := r.Header.Get("Origin"); origin != "" && strings.TrimRight(origin, "/") != strings.TrimRight(a.cfg.BaseURL, "/") {
+		if origin := r.Header.Get("Origin"); origin != "" && !sameOrigin(origin, r.Host, a.cfg.BaseURL) {
 			http.Error(w, "invalid origin", 403)
 			return store.User{}, "", false
 		}
 	}
 	return u, c.Value, true
 }
+
+func sameOrigin(origin, host, baseURL string) bool {
+	given, err := url.Parse(origin)
+	if err != nil || given.Host == "" || given.User != nil || given.Path != "" || given.RawQuery != "" || given.Fragment != "" {
+		return false
+	}
+	base, err := url.Parse(baseURL)
+	if err != nil || given.Scheme != base.Scheme {
+		return false
+	}
+	return strings.EqualFold(given.Host, host) || strings.EqualFold(given.Host, base.Host)
+}
+
 func (a *app) unauthorized(w http.ResponseWriter, r *http.Request, write bool) {
 	if write {
 		http.Error(w, "authentication required", 401)
