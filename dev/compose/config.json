@@ -1,0 +1,11 @@
+{
+  "listen": ":8080",
+  "baseURL": "http://127.0.0.1:48080",
+  "oidcIssuer": "http://127.0.0.1:48555",
+  "oidcClientID": "smoke-client",
+  "syncthingURL": "http://127.0.0.1:8384",
+  "syncthingMajor": 2,
+  "storageRoot": "/data/users",
+  "databasePath": "/data/wrapper.sqlite",
+  "registrationEnabled": true
+}

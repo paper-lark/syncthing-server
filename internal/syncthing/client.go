@@ -137,6 +137,7 @@ func (c *Client) MyID(ctx context.Context) (string, error) {
 type Folder struct {
 	ID      string         `json:"id"`
 	Label   string         `json:"label"`
+	Group   string         `json:"group"`
 	Path    string         `json:"path"`
 	Type    string         `json:"type"`
 	Devices []FolderDevice `json:"devices"`
@@ -191,7 +192,7 @@ func (f *Folder) UnmarshalJSON(b []byte) error {
 	return nil
 }
 func (f Folder) MarshalJSON() ([]byte, error) {
-	return merge(f.raw, map[string]any{"id": f.ID, "label": f.Label, "path": f.Path, "type": f.Type, "devices": f.Devices})
+	return merge(f.raw, map[string]any{"id": f.ID, "label": f.Label, "group": f.Group, "path": f.Path, "type": f.Type, "devices": f.Devices})
 }
 func (f *FolderDevice) UnmarshalJSON(b []byte) error {
 	type plain FolderDevice

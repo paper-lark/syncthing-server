@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -67,5 +68,9 @@ func main() {
 		write(w, map[string]string{"access_token": "test-only", "token_type": "Bearer", "id_token": fmt.Sprintf("%s.%s", input, base64.RawURLEncoding.EncodeToString(signature))})
 	})
 	log.Printf("test-only OIDC issuer: %s", issuer)
-	log.Fatal(http.ListenAndServe("127.0.0.1:48555", nil))
+	listen := os.Getenv("OIDC_FIXTURE_LISTEN")
+	if listen == "" {
+		listen = "127.0.0.1:48555"
+	}
+	log.Fatal(http.ListenAndServe(listen, nil))
 }

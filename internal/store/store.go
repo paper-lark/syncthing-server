@@ -50,28 +50,94 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1) // foreign_keys and busy_timeout are connection-local; serialize writes.
+	var schemaVersion int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&schemaVersion); err != nil || schemaVersion > 1 {
+		db.Close()
+		return nil, fmt.Errorf("unsupported store schema version %d: %v", schemaVersion, err)
+	}
 	for _, query := range []string{
 		`PRAGMA foreign_keys = ON`,
 		`PRAGMA busy_timeout = 5000`,
 		`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, issuer TEXT NOT NULL, subject TEXT NOT NULL, name TEXT NOT NULL, email TEXT NOT NULL, storage_area TEXT NOT NULL UNIQUE, UNIQUE(issuer, subject))`,
 		`CREATE TABLE IF NOT EXISTS sessions (token_hash BLOB PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), expires_at INTEGER NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS folders (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), name TEXT NOT NULL, UNIQUE(user_id, name))`,
+		`CREATE TABLE IF NOT EXISTS folders (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), name TEXT NOT NULL, label TEXT NOT NULL, group_name TEXT NOT NULL DEFAULT '', UNIQUE(user_id, name))`,
 		`CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), name TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS shares (folder_id TEXT NOT NULL REFERENCES folders(id) ON DELETE CASCADE, device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE, PRIMARY KEY(folder_id, device_id))`,
 		`CREATE TABLE IF NOT EXISTS operations (id TEXT PRIMARY KEY, user_id TEXT NOT NULL UNIQUE REFERENCES users(id), kind TEXT NOT NULL, resource_id TEXT NOT NULL, state TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '')`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS operations_resource ON operations(kind, resource_id)`,
 		`CREATE TABLE IF NOT EXISTS blocks (user_id TEXT PRIMARY KEY REFERENCES users(id), reason TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS global_blocks (id INTEGER PRIMARY KEY CHECK(id=1), reason TEXT NOT NULL)`,
-		// On every startup, an unfinished operation is evidence of a possible
-		// partial external write. A restarted process may never auto-complete it.
-		`UPDATE operations SET state='blocked',reason='interrupted operation; operator reconciliation required' WHERE state='pending'`,
 	} {
 		if _, err = db.Exec(query); err != nil {
 			db.Close()
 			return nil, fmt.Errorf("initialize store: %w", err)
 		}
 	}
+	if err = migrateFolders(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate folders: %w", err)
+	}
+	// A restarted process may never auto-complete a partial external write.
+	if _, err = db.Exec(`UPDATE operations SET state='blocked',reason='interrupted operation; operator reconciliation required' WHERE state='pending'`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("block interrupted operations: %w", err)
+	}
 	return &Store{db: db}, nil
+}
+
+func migrateFolders(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var version int
+	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		return err
+	}
+	if version > 1 {
+		return fmt.Errorf("unsupported store schema version %d", version)
+	}
+	if version == 1 {
+		return tx.Commit()
+	}
+	rows, err := tx.Query(`PRAGMA table_info(folders)`)
+	if err != nil {
+		return err
+	}
+	columns := make(map[string]bool)
+	for rows.Next() {
+		var number, required, primary int
+		var name, kind string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&number, &name, &kind, &required, &defaultValue, &primary); err != nil {
+			rows.Close()
+			return err
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if !columns["label"] {
+		if _, err := tx.Exec(`ALTER TABLE folders ADD COLUMN label TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE folders SET label=name`); err != nil {
+			return err
+		}
+	}
+	if !columns["group_name"] {
+		if _, err := tx.Exec(`ALTER TABLE folders ADD COLUMN group_name TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`PRAGMA user_version=1`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -170,12 +236,14 @@ func (s *Store) DeleteSession(ctx context.Context, token string) error {
 }
 
 // Folder and Device deliberately contain no full filesystem path or daemon credential.
-type Folder struct{ ID, UserID, Name string }
+// Subpath is the single directory name beneath the user's private storage area.
+// The SQLite name column stores this legacy value without moving existing data.
+type Folder struct{ ID, UserID, Label, Group, Subpath string }
 type Device struct{ ID, UserID, Name string }
 
 func scanFolder(row interface{ Scan(...any) error }) (Folder, error) {
 	var f Folder
-	err := row.Scan(&f.ID, &f.UserID, &f.Name)
+	err := row.Scan(&f.ID, &f.UserID, &f.Label, &f.Group, &f.Subpath)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Folder{}, ErrNotFound
 	}
@@ -192,8 +260,10 @@ func scanDevice(row interface{ Scan(...any) error }) (Device, error) {
 
 // FolderOwner and DeviceOwner support reconciliation of daemon configuration.
 // Do not expose them to untrusted browser requests; use Folder and Device for scoped reads.
+const folderColumns = `id,user_id,label,group_name,name`
+
 func (s *Store) FolderOwner(ctx context.Context, id string) (Folder, error) {
-	return scanFolder(s.db.QueryRowContext(ctx, `SELECT id,user_id,name FROM folders WHERE id=?`, id))
+	return scanFolder(s.db.QueryRowContext(ctx, `SELECT `+folderColumns+` FROM folders WHERE id=?`, id))
 }
 func (s *Store) DeviceOwner(ctx context.Context, id string) (Device, error) {
 	return scanDevice(s.db.QueryRowContext(ctx, `SELECT id,user_id,name FROM devices WHERE id=?`, id))
@@ -236,7 +306,7 @@ func (s *Store) AllUsers(ctx context.Context) ([]User, error) {
 	return result, rows.Err()
 }
 func (s *Store) UserFolders(ctx context.Context, userID string) ([]Folder, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,user_id,name FROM folders WHERE user_id=? ORDER BY name,id`, userID)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+folderColumns+` FROM folders WHERE user_id=? ORDER BY label,id`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -361,11 +431,14 @@ func conflict(err error) error {
 // Pass an operation ID to writes performed within BeginOperation/CompleteOperation.
 // Without it, no write is allowed while an operation is pending or a user blocked.
 func (s *Store) CreateFolder(ctx context.Context, userID, id, name string, operationID ...string) error {
-	if id == "" || name == "" || userID == "" {
-		return fmt.Errorf("folder ID, name and user required")
+	return s.CreateFolderDetails(ctx, Folder{ID: id, UserID: userID, Label: name, Subpath: name}, operationID...)
+}
+func (s *Store) CreateFolderDetails(ctx context.Context, f Folder, operationID ...string) error {
+	if f.ID == "" || f.Label == "" || f.Subpath == "" || f.UserID == "" {
+		return fmt.Errorf("folder ID, label, subpath and user required")
 	}
-	return s.write(ctx, userID, operationID, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `INSERT INTO folders(id,user_id,name) VALUES(?,?,?)`, id, userID, name)
+	return s.write(ctx, f.UserID, operationID, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO folders(id,user_id,name,label,group_name) VALUES(?,?,?,?,?)`, f.ID, f.UserID, f.Subpath, f.Label, f.Group)
 		return conflict(err)
 	})
 }
@@ -463,7 +536,7 @@ func (s *Store) DeviceShares(ctx context.Context, userID, deviceID string) ([]Fo
 	if _, err := s.Device(ctx, userID, deviceID); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT f.id,f.user_id,f.name FROM folders f JOIN shares s ON s.folder_id=f.id WHERE s.device_id=? AND f.user_id=? ORDER BY f.name,f.id`, deviceID, userID)
+	rows, err := s.db.QueryContext(ctx, `SELECT f.id,f.user_id,f.label,f.group_name,f.name FROM folders f JOIN shares s ON s.folder_id=f.id WHERE s.device_id=? AND f.user_id=? ORDER BY f.label,f.id`, deviceID, userID)
 	if err != nil {
 		return nil, err
 	}

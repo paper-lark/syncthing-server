@@ -138,7 +138,7 @@ func TestDashboardAndAdminOmitPathsAndSecrets(t *testing.T) {
 		t.Fatalf("admin overview leaked path or write actions: %d %s", r.Code, r.Body.String())
 	}
 }
-func TestCreateFolderAndDeleteRequiresTypedName(t *testing.T) {
+func TestCreateFolderAndDeleteRequiresTypedID(t *testing.T) {
 	h, db, c := fixture(t)
 	u, e := db.FindUser(context.Background(), "https://issuer.example", "alice")
 	if e != nil {
@@ -157,6 +157,12 @@ func TestCreateFolderAndDeleteRequiresTypedName(t *testing.T) {
 			json.NewEncoder(w).Encode(map[string]string{"myID": "SERVER"})
 		case r.Method == "GET" && r.URL.Path == "/rest/db/status":
 			json.NewEncoder(w).Encode(map[string]string{"state": "idle"})
+		case r.Method == "GET" && r.URL.Path == "/rest/config/folders":
+			if remote == nil {
+				json.NewEncoder(w).Encode([]syncthing.Folder{})
+			} else {
+				json.NewEncoder(w).Encode([]syncthing.Folder{*remote})
+			}
 		case r.Method == "POST" && r.URL.Path == "/rest/config/folders":
 			var f syncthing.Folder
 			if e := json.NewDecoder(r.Body).Decode(&f); e != nil {
@@ -187,7 +193,7 @@ func TestCreateFolderAndDeleteRequiresTypedName(t *testing.T) {
 	}
 	defer files.Close()
 	h = web.New(config.Config{BaseURL: "https://example.test"}, db, client, nil, files)
-	form := url.Values{"csrf": {csrf(t, h, c)}, "name": {"Private"}}
+	form := url.Values{"csrf": {csrf(t, h, c)}, "id": {"photos-2026"}, "label": {"Private photos"}, "group": {"Family"}, "subpath": {"Private"}}
 	r := serve(h, c, "POST", "/folders", form)
 	if r.Code != 303 {
 		t.Fatalf("create: %d %s", r.Code, r.Body.String())
@@ -196,11 +202,34 @@ func TestCreateFolderAndDeleteRequiresTypedName(t *testing.T) {
 	if e != nil || len(folders) != 1 {
 		t.Fatalf("folder not persisted: %v %v", folders, e)
 	}
-	if remote == nil || remote.Path != filepath.Join(root, u.StorageArea, "Private") || remote.Type != "sendreceive" || remote.ID == "Private" || len(remote.Devices) != 1 || remote.Devices[0].DeviceID != "SERVER" {
+	if folders[0].ID != "photos-2026" || folders[0].Label != "Private photos" || folders[0].Group != "Family" || folders[0].Subpath != "Private" {
+		t.Fatalf("folder fields not persisted: %+v", folders[0])
+	}
+	if remote == nil || remote.Path != filepath.Join(root, u.StorageArea, "Private") || remote.Type != "sendreceive" || remote.ID != "photos-2026" || remote.Label != "Private photos" || remote.Group != "Family" || len(remote.Devices) != 1 || remote.Devices[0].DeviceID != "SERVER" {
 		t.Fatalf("invalid daemon folder: %+v", remote)
 	}
 	if _, e = os.Stat(remote.Path); e != nil {
 		t.Fatal(e)
+	}
+	page := serve(h, c, "GET", "/", nil)
+	if page.Code != 200 || !strings.Contains(page.Body.String(), "Private photos") || !strings.Contains(page.Body.String(), "Group: Family") || !strings.Contains(page.Body.String(), "Subpath: Private") || strings.Contains(page.Body.String(), u.StorageArea) {
+		t.Fatalf("folder details missing or private area exposed: %d %s", page.Code, page.Body.String())
+	}
+	for _, tc := range []struct {
+		id, subpath string
+		code        int
+	}{
+		{"photos-2026", "other", 409},
+		{"other-id", "Private", 409},
+		{"other-id", "nested/path", 400},
+		{"other-id", "../escape", 400},
+		{"bad/id", "other", 400},
+	} {
+		attempt := url.Values{"csrf": {csrf(t, h, c)}, "id": {tc.id}, "label": {"Another label"}, "subpath": {tc.subpath}}
+		response := serve(h, c, "POST", "/folders", attempt)
+		if response.Code != tc.code {
+			t.Errorf("create %q %q: HTTP %d, want %d", tc.id, tc.subpath, response.Code, tc.code)
+		}
 	}
 	form = url.Values{"csrf": {csrf(t, h, c)}, "confirm": {"wrong"}}
 	r = serve(h, c, "POST", "/folders/"+folders[0].ID+"/delete", form)
@@ -210,7 +239,7 @@ func TestCreateFolderAndDeleteRequiresTypedName(t *testing.T) {
 	if remote == nil {
 		t.Fatal("wrong confirmation removed daemon folder")
 	}
-	form.Set("confirm", "Private")
+	form.Set("confirm", "photos-2026")
 	r = serve(h, c, "POST", "/folders/"+folders[0].ID+"/delete", form)
 	if r.Code != 303 {
 		t.Fatalf("delete: %d %s", r.Code, r.Body.String())
@@ -234,6 +263,10 @@ func TestFailedFolderWriteBlocksFurtherChanges(t *testing.T) {
 			json.NewEncoder(w).Encode(map[string]string{"myID": "SERVER"})
 			return
 		}
+		if r.Method == "GET" && r.URL.Path == "/rest/config/folders" {
+			json.NewEncoder(w).Encode([]syncthing.Folder{})
+			return
+		}
 		http.Error(w, "broken daemon", 500)
 	}))
 	defer daemon.Close()
@@ -247,7 +280,7 @@ func TestFailedFolderWriteBlocksFurtherChanges(t *testing.T) {
 	}
 	defer files.Close()
 	h := web.New(config.Config{BaseURL: "https://example.test"}, db, client, nil, files)
-	req := url.Values{"csrf": {csrf(t, h, c)}, "name": {"private"}}
+	req := url.Values{"csrf": {csrf(t, h, c)}, "id": {"private-id"}, "label": {"Private"}, "subpath": {"private"}}
 	r := serve(h, c, "POST", "/folders", req)
 	if r.Code != 503 {
 		t.Fatalf("failed daemon request: %d", r.Code)
@@ -256,7 +289,7 @@ func TestFailedFolderWriteBlocksFurtherChanges(t *testing.T) {
 	if e != nil || !blocked {
 		t.Fatalf("failure not durable: %t %v", blocked, e)
 	}
-	req.Set("name", "another")
+	req.Set("subpath", "another")
 	r = serve(h, c, "POST", "/folders", req)
 	if r.Code != 409 || !strings.Contains(r.Body.String(), "contact the operator") {
 		t.Fatalf("writes not blocked: %d %s", r.Code, r.Body.String())
@@ -324,7 +357,7 @@ func TestCrossOwnerDeleteAndShareCannotModifyResources(t *testing.T) {
 	for _, tc := range []struct {
 		path   string
 		values url.Values
-	}{{"/folders/bob-folder/delete", url.Values{"confirm": {"Bob files"}}}, {"/folders/bob-folder/shares", url.Values{"device": {"peer"}, "action": {"add"}}}} {
+	}{{"/folders/bob-folder/delete", url.Values{"confirm": {"Bob files"}}}, {"/folders/bob-folder/shares", url.Values{"device": {"peer"}, "action": {"add"}}}, {"/folders/bob-folder/shares", url.Values{"device": {"peer"}, "action": {"remove"}}}} {
 		tc.values.Set("csrf", csrf(t, h, c))
 		r := serve(h, c, "POST", tc.path, tc.values)
 		if r.Code != 404 {
@@ -429,6 +462,10 @@ func TestOIDCLoginBindsBrowserStatePKCEAndRegistration(t *testing.T) {
 
 func TestHTTPDeviceAddShareUnshareAndRemove(t *testing.T) {
 	_, users, session := fixture(t)
+	user, err := users.FindUser(context.Background(), "https://issuer.example", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
 	root := t.TempDir()
 	files, err := storage.Open(root)
 	if err != nil {
@@ -527,7 +564,7 @@ func TestHTTPDeviceAddShareUnshareAndRemove(t *testing.T) {
 	}
 	post("/devices", url.Values{"id": {peer}, "name": {"Laptop"}})
 	post("/devices", url.Values{"id": {other}, "name": {"Phone"}})
-	post("/folders", url.Values{"name": {"Notes"}})
+	post("/folders", url.Values{"id": {"notes-id"}, "label": {"Notes"}, "group": {"Projects"}, "subpath": {"notes-dir"}})
 	page := serve(handler, session, "GET", "/", nil)
 	idMatch := regexp.MustCompile(`action="/folders/([^"]+)/shares"`).FindStringSubmatch(page.Body.String())
 	if len(idMatch) != 2 {
@@ -535,7 +572,7 @@ func TestHTTPDeviceAddShareUnshareAndRemove(t *testing.T) {
 	}
 	folderID := idMatch[1]
 	folder := folders[folderID]
-	if folder.ID != folderID || len(folder.Devices) != 1 || folder.Devices[0].DeviceID != "SERVER" {
+	if folder.ID != folderID || folder.Group != "Projects" || folder.Path != filepath.Join(root, user.StorageArea, "notes-dir") || len(folder.Devices) != 1 || folder.Devices[0].DeviceID != "SERVER" {
 		t.Fatalf("folder must start unshared: %+v", folder)
 	}
 	post("/folders/"+folderID+"/shares", url.Values{"device": {peer}, "action": {"add"}})
@@ -543,15 +580,23 @@ func TestHTTPDeviceAddShareUnshareAndRemove(t *testing.T) {
 	if len(folder.Devices) != 2 || folder.Devices[1].DeviceID != peer {
 		t.Fatalf("peer was not shared: %+v", folder.Devices)
 	}
+	page = serve(handler, session, "GET", "/", nil)
+	if !strings.Contains(page.Body.String(), `name="device" value="`+peer+`"`) || !strings.Contains(page.Body.String(), `aria-label="Unshare Laptop from Notes"`) || !strings.Contains(page.Body.String(), "Shared with") {
+		t.Fatalf("shared peer row missing or no unshare action: %s", page.Body.String())
+	}
 	post("/folders/"+folderID+"/shares", url.Values{"device": {peer}, "action": {"remove"}})
+	page = serve(handler, session, "GET", "/", nil)
+	if strings.Contains(page.Body.String(), `aria-label="Unshare Laptop from Notes"`) {
+		t.Fatalf("unshared peer still appears in folder share list: %s", page.Body.String())
+	}
 	folder = folders[folderID]
 	if len(folder.Devices) != 1 || folder.Devices[0].DeviceID != "SERVER" {
 		t.Fatalf("unshare removed wrong device: %+v", folder.Devices)
 	}
 	post("/folders/"+folderID+"/shares", url.Values{"device": {peer}, "action": {"add"}})
 	page = serve(handler, session, "GET", "/", nil)
-	if !strings.Contains(page.Body.String(), "Removing unshares: Notes") {
-		t.Fatalf("affected share absent from device removal UI: %s", page.Body.String())
+	if strings.Contains(page.Body.String(), "Removing unshares:") || !strings.Contains(page.Body.String(), `aria-label="Unshare Laptop from Notes"`) {
+		t.Fatalf("folder sharing list or peer display incorrect: %s", page.Body.String())
 	}
 	post("/devices/"+peer+"/delete", url.Values{})
 	folder = folders[folderID]

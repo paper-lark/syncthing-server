@@ -24,7 +24,7 @@ func TestDuplicateOwnedFolderDoesNotBlockUser(t *testing.T) {
 	if err := db.CreateFolder(context.Background(), user.ID, "existing-id", "Photos"); err != nil {
 		t.Fatal(err)
 	}
-	response := serve(handler, cookie, "POST", "/folders", url.Values{"csrf": {csrf(t, handler, cookie)}, "name": {"Photos"}})
+	response := serve(handler, cookie, "POST", "/folders", url.Values{"csrf": {csrf(t, handler, cookie)}, "id": {"new-id"}, "label": {"Another label"}, "subpath": {"Photos"}})
 	if response.Code != http.StatusConflict {
 		t.Fatalf("duplicate folder: %d %s", response.Code, response.Body.String())
 	}

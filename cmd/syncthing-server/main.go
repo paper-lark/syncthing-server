@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -24,11 +25,20 @@ import (
 	"syncthing-server/internal/web"
 )
 
+var syncthingVersion = regexp.MustCompile(`^v([0-9]+)\.([0-9]+)\.([0-9]+)$`)
+
 func checkSyncthingVersion(version string, major int) error {
-	number := strings.TrimPrefix(strings.SplitN(version, ".", 2)[0], "v")
-	got, err := strconv.Atoi(number)
+	parts := syncthingVersion.FindStringSubmatch(version)
+	if parts == nil {
+		return fmt.Errorf("unsupported Syncthing version %q (expected stable v%d.1.0 or newer)", version, major)
+	}
+	got, err := strconv.Atoi(parts[1])
 	if err != nil || got != major {
 		return fmt.Errorf("unsupported Syncthing major version %q (expected v%d)", version, major)
+	}
+	minor, err := strconv.Atoi(parts[2])
+	if err != nil || (got == 2 && minor < 1) {
+		return fmt.Errorf("Syncthing v2.1.0 or newer is required for folder groups: %q", version)
 	}
 	return nil
 }

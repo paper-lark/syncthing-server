@@ -6,6 +6,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -13,11 +14,15 @@ import (
 	"fmt"
 	"html/template"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"syncthing-server/internal/config"
 	"syncthing-server/internal/oidc"
@@ -52,6 +57,10 @@ func New(cfg config.Config, users *store.Store, daemon *syncthing.Client, oidcPr
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte("ok\n"))
 	})
+	mux.HandleFunc("GET /assets/dialogs.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		_, _ = w.Write(dialogsJS)
+	})
 	mux.HandleFunc("GET /login", a.startLogin)
 	mux.HandleFunc("GET /callback", a.callback)
 	mux.HandleFunc("POST /logout", a.logout)
@@ -65,7 +74,7 @@ func New(cfg config.Config, users *store.Store, daemon *syncthing.Client, oidcPr
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
 		w.Header().Set("Cache-Control", "no-store")
 		mux.ServeHTTP(w, r)
 	})
@@ -230,15 +239,25 @@ func (a *app) logout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/login", 303)
 }
 
-var page = template.Must(template.New("page").Parse(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>{{.Title}}</title><style>body{font:16px system-ui;max-width:60rem;margin:2rem auto;padding:0 1rem;color:#202834;background:#fafafa}section{border:1px solid #ced5df;border-radius:8px;background:white;padding:1rem;margin:1rem 0}form{margin:.75rem 0}input,button,select{font:inherit;margin:.25rem;padding:.4rem}small{display:block;color:#425269}nav a{margin-right:1rem}</style></head><body><nav><a href="/">My resources</a>{{if .IsAdmin}}<a href="/admin">Overview</a>{{end}}<form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button>Sign out</button></form></nav><h1>{{.Title}}</h1>{{range .Groups}}<section><h2>{{.Name}}</h2><h3>Folders</h3>{{range .Folders}}<div><strong>{{.Name}}</strong> ({{.ID}}){{if .Status}} — {{.Status}}{{end}}{{if .Stats}} — {{.Stats}}{{end}}{{if $.Editable}}<form method="post" action="/folders/{{.ID}}/shares"><input type="hidden" name="csrf" value="{{$.CSRF}}"><select name="device"><option value="">Choose a device</option>{{range .Devices}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select><button name="action" value="add">Share</button><button name="action" value="remove">Unshare</button></form><form method="post" action="/folders/{{.ID}}/delete"><input type="hidden" name="csrf" value="{{$.CSRF}}"><label>Type folder name to confirm server-side file deletion <input name="confirm" required></label><small>Server-side files will be permanently deleted; peer copies may remain.</small><button>Delete folder</button></form>{{end}}</div>{{else}}<p>No folders</p>{{end}}<h3>Peer devices</h3>{{range .Devices}}<div><strong>{{.Name}}</strong> ({{.ID}}){{if .Status}} — {{.Status}}{{end}}{{if .Shares}}<small>Removing unshares: {{range .Shares}}{{.}}; {{end}}</small>{{end}}{{if $.Editable}}<form method="post" action="/devices/{{.ID}}/delete"><input type="hidden" name="csrf" value="{{$.CSRF}}"><small>Removing this device unshares it from all your folders; files on the peer are not deleted.</small><button>Remove device</button></form>{{end}}</div>{{else}}<p>No devices</p>{{end}}</section>{{end}}{{if .Editable}}<section><h2>Create folder</h2><form method="post" action="/folders"><input type="hidden" name="csrf" value="{{.CSRF}}"><label>Single folder name <input name="name" required></label><button>Create</button></form><h2>Add peer</h2><form method="post" action="/devices"><input type="hidden" name="csrf" value="{{.CSRF}}"><label>Device ID <input name="id" required></label><label>Display name <input name="name" required></label><button>Add peer</button></form><p>Server device ID: {{.ServerID}}. Add this server on your peer, then accept folder shares there.</p></section>{{end}}</body></html>`))
+//go:embed page.html
+var pageHTML string
+
+//go:embed dialogs.js
+var dialogsJS []byte
+
+var page = template.Must(template.New("page").Parse(pageHTML))
 
 type viewFolder struct {
-	ID, Name, Status, Stats string
-	Devices                 []viewDevice
+	ID, Label, FolderGroup, Subpath, Status, Stats string
+	LastScan, LastScanTime                         string
+	Devices                                        []viewDevice
+	Shared                                         []viewSharedDevice
+}
+type viewSharedDevice struct {
+	ID, Name, Status, Completion string
 }
 type viewDevice struct {
-	ID, Name, Status string
-	Shares           []string
+	ID, Name, Status, LastSeen, LastSeenTime string
 }
 type group struct {
 	Name    string
@@ -260,6 +279,51 @@ func (a *app) isAdmin(u store.User) bool {
 	}
 	return false
 }
+
+func folderLastScan(raw json.RawMessage) (string, string) {
+	var stats struct {
+		LastScan string `json:"lastScan"`
+	}
+	if err := json.Unmarshal(raw, &stats); err != nil || stats.LastScan == "" {
+		return "Unavailable", ""
+	}
+	when, err := time.Parse(time.RFC3339Nano, stats.LastScan)
+	if err != nil {
+		return "Unavailable", ""
+	}
+	if when.IsZero() {
+		return "Not scanned yet", ""
+	}
+	return when.UTC().Format("02 Jan 2006, 15:04 UTC"), when.UTC().Format(time.RFC3339)
+}
+
+func deviceLastSeen(raw json.RawMessage) (string, string) {
+	var stats struct {
+		LastSeen string `json:"lastSeen"`
+	}
+	if err := json.Unmarshal(raw, &stats); err != nil || stats.LastSeen == "" {
+		return "Unavailable", ""
+	}
+	when, err := time.Parse(time.RFC3339Nano, stats.LastSeen)
+	if err != nil {
+		return "Unavailable", ""
+	}
+	if !when.After(time.Unix(0, 0)) {
+		return "Never seen", ""
+	}
+	return when.UTC().Format("02 Jan 2006, 15:04 UTC"), when.UTC().Format(time.RFC3339)
+}
+
+func peerCompletion(raw json.RawMessage) string {
+	var result struct {
+		Completion *float64 `json:"completion"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil || result.Completion == nil || math.IsNaN(*result.Completion) || *result.Completion < 0 || *result.Completion > 100 {
+		return "Unavailable"
+	}
+	return fmt.Sprintf("%.1f%% synced", math.Floor(*result.Completion*10)/10)
+}
+
 func (a *app) group(ctx context.Context, u store.User) (group, error) {
 	g := group{Name: u.Name}
 	var err error
@@ -281,34 +345,39 @@ func (a *app) group(ctx context.Context, u store.User) (group, error) {
 		} `json:"connections"`
 	}
 	if a.daemon != nil && len(ds) != 0 {
-		raw, e := a.daemon.Connections(ctx)
-		if e != nil {
-			return g, e
+		if raw, e := a.daemon.Connections(ctx); e == nil {
+			_ = json.Unmarshal(raw, &connections)
 		}
-		if e = json.Unmarshal(raw, &connections); e != nil {
-			return g, e
+	}
+	connectionStatus := func(id string) string {
+		if info, ok := connections.Connections[id]; ok {
+			if info.Connected {
+				return "connected"
+			}
+			return "disconnected"
 		}
+		return "unknown"
+	}
+	var deviceStats map[string]json.RawMessage
+	if a.daemon != nil && len(ds) != 0 {
+		statsCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		deviceStats, _ = a.daemon.DeviceStats(statsCtx)
+		cancel()
 	}
 	for _, d := range ds {
-		v := viewDevice{ID: d.ID, Name: d.Name}
-		if a.daemon != nil {
-			if connections.Connections[d.ID].Connected {
-				v.Status = "connected"
-			} else {
-				v.Status = "disconnected"
-			}
-		}
-		shares, e := a.users.DeviceShares(ctx, u.ID, d.ID)
-		if e != nil {
-			return g, e
-		}
-		for _, f := range shares {
-			v.Shares = append(v.Shares, f.Name)
-		}
+		v := viewDevice{ID: d.ID, Name: d.Name, Status: connectionStatus(d.ID)}
+		v.LastSeen, v.LastSeenTime = deviceLastSeen(deviceStats[d.ID])
 		g.Devices = append(g.Devices, v)
 	}
+	var folderStats map[string]json.RawMessage
+	if a.daemon != nil && len(fs) != 0 {
+		statsCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		folderStats, _ = a.daemon.FolderStats(statsCtx)
+		cancel()
+	}
 	for _, f := range fs {
-		v := viewFolder{ID: f.ID, Name: f.Name, Devices: g.Devices}
+		v := viewFolder{ID: f.ID, Label: f.Label, FolderGroup: f.Group, Subpath: f.Subpath}
+		v.LastScan, v.LastScanTime = folderLastScan(folderStats[f.ID])
 		if a.daemon != nil {
 			raw, e := a.daemon.FolderStatus(ctx, f.ID)
 			if e != nil {
@@ -329,6 +398,29 @@ func (a *app) group(ctx context.Context, u store.User) (group, error) {
 			}
 			if status.GlobalBytes != nil && status.NeedBytes != nil && *status.GlobalBytes >= 0 && *status.NeedBytes >= 0 {
 				v.Stats = fmt.Sprintf("%d bytes, %d bytes remaining", *status.GlobalBytes, *status.NeedBytes)
+			}
+		}
+		shares, e := a.users.FolderShares(ctx, u.ID, f.ID)
+		if e != nil {
+			return g, e
+		}
+		sharedIDs := make(map[string]bool, len(shares))
+		for _, peer := range shares {
+			sharedIDs[peer.ID] = true
+			shared := viewSharedDevice{ID: peer.ID, Name: peer.Name, Status: connectionStatus(peer.ID), Completion: "Unavailable"}
+			if shared.Status == "connected" && a.daemon != nil {
+				completionCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+				raw, e := a.daemon.Completion(completionCtx, f.ID, peer.ID)
+				cancel()
+				if e == nil {
+					shared.Completion = peerCompletion(raw)
+				}
+			}
+			v.Shared = append(v.Shared, shared)
+		}
+		for _, device := range g.Devices {
+			if !sharedIDs[device.ID] {
+				v.Devices = append(v.Devices, device)
 			}
 		}
 		g.Folders = append(g.Folders, v)
@@ -400,9 +492,15 @@ func fail(w http.ResponseWriter, err error) {
 		http.Error(w, "operation failed; contact the operator if changes remain blocked", 503)
 	}
 }
-func (a *app) operation(w http.ResponseWriter, r *http.Request, u store.User, kind, id string, fn func(string) error) {
+func (a *app) operation(w http.ResponseWriter, r *http.Request, u store.User, kind, id string, fn func(string) error, preflight ...func() error) {
 	unlock := a.users.LockChanges()
 	defer unlock()
+	for _, check := range preflight {
+		if err := check(); err != nil {
+			fail(w, err)
+			return
+		}
+	}
 	op, err := a.users.BeginOperation(r.Context(), u.ID, kind, id)
 	if err != nil {
 		fail(w, err)
@@ -422,37 +520,27 @@ func (a *app) operation(w http.ResponseWriter, r *http.Request, u store.User, ki
 	http.Redirect(w, r, "/", 303)
 }
 func validID(id string) bool { return syncthing.ValidDeviceID(id) }
+
+var folderIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
+
+func validFolderText(s string, required bool) bool {
+	return (!required || s != "") && len(s) <= 255 && utf8.ValidString(s) && !strings.ContainsFunc(s, unicode.IsControl)
+}
+
 func (a *app) createFolder(w http.ResponseWriter, r *http.Request) {
 	u, _, ok := a.auth(w, r, true)
 	if !ok {
 		return
 	}
-	name := r.PostForm.Get("name")
-	if !storage.ValidName(name) {
-		http.Error(w, "invalid folder name", 400)
+	id := r.PostForm.Get("id")
+	label := strings.TrimSpace(r.PostForm.Get("label"))
+	folderGroup := strings.TrimSpace(r.PostForm.Get("group"))
+	subpath := r.PostForm.Get("subpath")
+	if !folderIDPattern.MatchString(id) || !validFolderText(label, true) || !validFolderText(folderGroup, false) || !storage.ValidName(subpath) {
+		http.Error(w, "invalid folder ID, label, group or subpath", 400)
 		return
 	}
-	existing, e := a.users.UserFolders(r.Context(), u.ID)
-	if e != nil {
-		fail(w, e)
-		return
-	}
-	for _, f := range existing {
-		if f.Name == name {
-			fail(w, store.ErrConflict)
-			return
-		}
-	}
-	id, e := random()
-	if e != nil {
-		fail(w, e)
-		return
-	}
-	id = "folder-" + strings.ReplaceAll(id, "-", "_")
 	a.operation(w, r, u, "create-folder", id, func(op string) error {
-		if a.files == nil || a.daemon == nil {
-			return errors.New("service unavailable")
-		}
 		serverID, e := a.daemon.MyID(r.Context())
 		if e != nil {
 			return e
@@ -460,11 +548,11 @@ func (a *app) createFolder(w http.ResponseWriter, r *http.Request) {
 		if serverID == "" {
 			return errors.New("server has no device identity")
 		}
-		path, e := a.files.Create(u.StorageArea, name)
+		path, e := a.files.Create(u.StorageArea, subpath)
 		if e != nil {
 			return e
 		}
-		e = a.daemon.CreateFolder(r.Context(), syncthing.Folder{ID: id, Label: name, Path: path, Type: "sendreceive", Devices: []syncthing.FolderDevice{{DeviceID: serverID}}})
+		e = a.daemon.CreateFolder(r.Context(), syncthing.Folder{ID: id, Label: label, Group: folderGroup, Path: path, Type: "sendreceive", Devices: []syncthing.FolderDevice{{DeviceID: serverID}}})
 		if e != nil {
 			return e
 		}
@@ -472,10 +560,40 @@ func (a *app) createFolder(w http.ResponseWriter, r *http.Request) {
 		if e != nil {
 			return e
 		}
-		if got.ID != id || got.Path != path || got.Type != "sendreceive" || len(got.Devices) != 1 || got.Devices[0].DeviceID != serverID {
+		if got.ID != id || got.Label != label || got.Group != folderGroup || got.Path != path || got.Type != "sendreceive" || len(got.Devices) != 1 || got.Devices[0].DeviceID != serverID {
 			return errors.New("folder verification failed")
 		}
-		return a.users.CreateFolder(r.Context(), u.ID, id, name, op)
+		return a.users.CreateFolderDetails(r.Context(), store.Folder{ID: id, UserID: u.ID, Label: label, Group: folderGroup, Subpath: subpath}, op)
+	}, func() error {
+		folders, e := a.users.UserFolders(r.Context(), u.ID)
+		if e != nil {
+			return e
+		}
+		for _, f := range folders {
+			if f.Subpath == subpath {
+				return store.ErrConflict
+			}
+		}
+		if a.files == nil || a.daemon == nil {
+			return errors.New("service unavailable")
+		}
+		exists, e := a.files.Exists(u.StorageArea, subpath)
+		if e != nil {
+			return e
+		}
+		if exists {
+			return store.ErrConflict
+		}
+		remote, e := a.daemon.Folders(r.Context())
+		if e != nil {
+			return e
+		}
+		for _, f := range remote {
+			if f.ID == id {
+				return store.ErrConflict
+			}
+		}
+		return nil
 	})
 }
 func (a *app) createDevice(w http.ResponseWriter, r *http.Request) {
@@ -533,11 +651,11 @@ func (a *app) ownedFolderConfig(ctx context.Context, u store.User, owned store.F
 	if err != nil {
 		return syncthing.Folder{}, err
 	}
-	path, err := a.files.Path(u.StorageArea, owned.Name)
+	path, err := a.files.Path(u.StorageArea, owned.Subpath)
 	if err != nil {
 		return syncthing.Folder{}, err
 	}
-	if remote.ID != owned.ID || remote.Path != path || remote.Label != owned.Name || remote.Type != "sendreceive" {
+	if remote.ID != owned.ID || remote.Path != path || remote.Label != owned.Label || remote.Group != owned.Group || remote.Type != "sendreceive" {
 		return syncthing.Folder{}, errors.New("folder configuration drift")
 	}
 	serverID, err := a.daemon.MyID(ctx)
@@ -644,8 +762,8 @@ func (a *app) deleteFolder(w http.ResponseWriter, r *http.Request) {
 		fail(w, e)
 		return
 	}
-	if r.PostForm.Get("confirm") != f.Name {
-		http.Error(w, "type the folder name to confirm deletion", 400)
+	if r.PostForm.Get("confirm") != f.ID {
+		http.Error(w, "type the folder ID to confirm deletion", 400)
 		return
 	}
 	a.operation(w, r, u, "delete-folder", id, func(op string) error {
@@ -655,7 +773,7 @@ func (a *app) deleteFolder(w http.ResponseWriter, r *http.Request) {
 		if _, e := a.ownedFolderConfig(r.Context(), u, f); e != nil {
 			return e
 		}
-		exists, e := a.files.Exists(u.StorageArea, f.Name)
+		exists, e := a.files.Exists(u.StorageArea, f.Subpath)
 		if e != nil || !exists {
 			return fmt.Errorf("folder storage mismatch: %v", e)
 		}
@@ -667,10 +785,10 @@ func (a *app) deleteFolder(w http.ResponseWriter, r *http.Request) {
 		if !errors.As(e, &he) || he.StatusCode != 404 {
 			return errors.New("folder deletion verification failed")
 		}
-		if e = a.files.Remove(u.StorageArea, f.Name); e != nil {
+		if e = a.files.Remove(u.StorageArea, f.Subpath); e != nil {
 			return e
 		}
-		exists, e = a.files.Exists(u.StorageArea, f.Name)
+		exists, e = a.files.Exists(u.StorageArea, f.Subpath)
 		if e != nil || exists {
 			return errors.New("folder removal verification failed")
 		}

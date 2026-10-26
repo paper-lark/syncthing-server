@@ -13,7 +13,16 @@ go build ./cmd/syncthing-server
 docker build -t syncthing-server .
 ```
 
-The Docker image contains **only the wrapper**. Syncthing runs separately; its GUI/API must listen on loopback and be reachable from the wrapper in the same network namespace. Peers connect to Syncthing's ordinary sync listener, not to the wrapper's web port. The wrapper creates user storage areas with private (`0700`) permissions: both processes must have access to the same mounted paths, typically by running with the same effective UID. Align runtime ownership before trying a separate daemon container; merely mounting the same volume is insufficient.
+### Local Docker Compose
+
+```sh
+docker compose up --build -d
+# If Compose is installed as a standalone binary: docker-compose up --build -d
+```
+
+Visit <http://127.0.0.1:48080/>. The Compose stack starts Syncthing, the wrapper, and a disposable OIDC fixture that automatically signs in as `smoke-user`. The wrapper and test issuer are published only on host loopback; Syncthing's GUI/API remains private inside the shared network namespace. Standard Syncthing peer ports 22000/TCP+UDP and 21027/UDP are published. The config, SQLite database, and user folders live in dedicated Docker volumes. `docker compose down` stops the stack without deleting those volumes; `docker compose down -v` **permanently deletes** this stack's data. This development stack runs Syncthing and the wrapper as root to share the volumes and uses a fixed test-only client secret: never use it for production or expose the web port to other machines.
+
+The default Docker image contains **only the wrapper** (the separate `oidc-fixture` build target is for local testing). Syncthing runs separately; its GUI/API must listen on loopback and be reachable from the wrapper in the same network namespace. Peers connect to Syncthing's ordinary sync listener, not to the wrapper's web port. The wrapper creates user storage areas with private (`0700`) permissions: both processes must have access to the same mounted paths, typically by running with the same effective UID. Align runtime ownership before trying a separate daemon container; merely mounting the same volume is insufficient.
 
 ## Application configuration
 
@@ -23,7 +32,7 @@ Copy `config.example.json` to a private, non-secret application config file and 
 - `oidcIssuer`: the issuer URL exactly as advertised in its OIDC discovery document.
 - `oidcClientID`: the OIDC client's ID. The app uses the standard authorization-code flow with PKCE, not issuer-specific claims.
 - `syncthingURL`: the daemon's **private** GUI/API URL; configure Syncthing's GUI listener on `127.0.0.1:8384` and keep the stock GUI inaccessible to users.
-- `syncthingMajor`: the tested Syncthing major version; defaults to `2`, and startup fails on a mismatch.
+- `syncthingMajor`: the tested Syncthing major version; defaults to `2`, and startup fails on a mismatch. Syncthing v2.1.0 or newer is required for native folder groups.
 - `databasePath`: an absolute path for the SQLite store, in a writable directory that survives restarts.
 - `storageRoot`: an existing, writable absolute directory containing only user storage areas. Keep it distinct from Syncthing's config directory.
 - `registrationEnabled`: defaults to `true`. If disabled, new OIDC identities are denied; existing users can still log in. There is no provisioning UI in this release.
@@ -43,6 +52,8 @@ PocketID is the intended first OIDC provider, but the application does not use P
 4. Visit the app; you will be redirected to PocketID to authenticate, then returned to **My resources**. Sign out and verify the protected page requires login again. For an admin view, read the stable `sub` claim for your PocketID account, add the exact issuer/subject pair under `admins`, and restart the app.
 5. Add a peer by its Syncthing device ID. Add the server's displayed ID to the peer, then create a folder in the wrapper and share it with that peer; accept the offered folder on the peer. To verify separation, sign in as a second user and confirm their view does not show the first user's folders or devices.
 
+Each folder lists its shared peers with their connection state and folder-specific sync completion. The **server last scan** is the shared daemon's scan of that folder, not the peer's own scan time (which this daemon cannot report). Use the Unshare button beside a peer to stop sharing that folder without removing the peer device. If Syncthing cannot report completion or last scan, the UI says it is unavailable rather than guessing.
+
 ## Data safety
 
-Folder names are one immediate directory name inside an opaque per-user storage area; the full path is not browser-editable. Folder removal asks the user to type its name and **permanently deletes the server-side directory only after removing it from Syncthing configuration**. Files already present on external peers may remain. Removal of a peer unshares it from the user's folders but cannot remove that peer's files. Partial writes and unexpected directory/configuration changes are logged and block the affected user's writes across restarts until an operator reconciles them out of band. For recovery, stop the wrapper, inspect the `operations`, `blocks`, and `global_blocks` SQLite tables alongside Syncthing configuration and actual folders, repair the mismatch, then clear only the verified block records before restarting. Clearing a block without repairing its cause leaves data safety unresolved.
+Folder creation asks for a Syncthing folder ID (unique across all users), a display label, an optional native Syncthing group, and a subpath. The subpath is one immediate directory name inside an opaque per-user storage area; the full path is not browser-editable. Labels may repeat, but subpaths must be unique within a user's storage area. Folder removal asks the user to type its ID and **permanently deletes the server-side directory only after removing it from Syncthing configuration**. Files already present on external peers may remain. Removal of a peer unshares it from the user's folders but cannot remove that peer's files. Partial writes and unexpected directory/configuration changes are logged and block the affected user's writes across restarts until an operator reconciles them out of band. For recovery, stop the wrapper, inspect the `operations`, `blocks`, and `global_blocks` SQLite tables alongside Syncthing configuration and actual folders, repair the mismatch, then clear only the verified block records before restarting. Clearing a block without repairing its cause leaves data safety unresolved.

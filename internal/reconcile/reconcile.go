@@ -127,19 +127,19 @@ func (c *Checker) Check(ctx context.Context) error {
 		}
 		registered := make(map[string]bool, len(folders))
 		for _, folder := range folders {
-			registered[folder.Name] = true
-			expected, err := c.files.Path(user.StorageArea, folder.Name)
+			registered[folder.Subpath] = true
+			expected, err := c.files.Path(user.StorageArea, folder.Subpath)
 			if err != nil {
 				return err
 			}
 			actual, ok := folderByID[folder.ID]
-			if !ok || filepath.Clean(actual.Path) != filepath.Clean(expected) || actual.Type != "sendreceive" || actual.Label != folder.Name {
+			if !ok || filepath.Clean(actual.Path) != filepath.Clean(expected) || actual.Type != "sendreceive" || actual.Label != folder.Label || actual.Group != folder.Group {
 				if err := mark(user.ID, "registered Syncthing folder missing or configuration changed"); err != nil {
 					return err
 				}
 				continue
 			}
-			exists, err := c.files.Exists(user.StorageArea, folder.Name)
+			exists, err := c.files.Exists(user.StorageArea, folder.Subpath)
 			if err != nil || !exists {
 				if err := mark(user.ID, "registered folder directory missing or invalid"); err != nil {
 					return err

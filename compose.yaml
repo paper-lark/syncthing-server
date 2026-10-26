@@ -1,0 +1,49 @@
+# Disposable local development stack. Do not use the test OIDC issuer or root users in production.
+services:
+  syncthing:
+    image: syncthing/syncthing:latest
+    environment:
+      PUID: "0"
+      PGID: "0"
+      STGUIADDRESS: 127.0.0.1:8384
+    volumes:
+      - syncthing-config:/var/syncthing
+      - user-data:/data
+    ports:
+      - 127.0.0.1:48080:8080
+      - 127.0.0.1:48555:48555
+      - 22000:22000/tcp
+      - 22000:22000/udp
+      - 21027:21027/udp
+    restart: unless-stopped
+
+  oidc-fixture:
+    build:
+      context: .
+      target: oidc-fixture
+    environment:
+      OIDC_FIXTURE_LISTEN: ":48555"
+    network_mode: service:syncthing
+    depends_on:
+      - syncthing
+    restart: unless-stopped
+
+  wrapper:
+    build: .
+    user: "0:0"
+    entrypoint: ["/bin/sh", "/opt/local/start-wrapper.sh"]
+    environment:
+      APP_CONFIG: /opt/local/config.json
+      APP_OIDC_CLIENT_SECRET: test-only-secret
+    volumes:
+      - syncthing-config:/var/syncthing:ro
+      - user-data:/data
+    network_mode: service:syncthing
+    depends_on:
+      - syncthing
+      - oidc-fixture
+    restart: unless-stopped
+
+volumes:
+  syncthing-config:
+  user-data:

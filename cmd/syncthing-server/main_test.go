@@ -10,7 +10,10 @@ func TestCheckSyncthingVersion(t *testing.T) {
 	}{
 		{"v2.1.3", 2, true},
 		{"v1.30.0", 2, false},
-		{"v2.1.3-rc.1", 2, true},
+		{"v2.1.3-rc.1", 2, false},
+		{"v2.0.9", 2, false},
+		{"v2.1.0", 2, true},
+		{"v2.1", 2, false},
 		{"development", 2, false},
 		{"", 2, false},
 	} {

@@ -57,7 +57,7 @@ func TestFoldersAndDevicesPreserveUnknownConfiguration(t *testing.T) {
 		requests = append(requests, r.Method+" "+r.URL.EscapedPath())
 		switch {
 		case r.Method == "GET" && r.URL.Path == "/rest/config/folders":
-			io.WriteString(w, `[{"id":"f","label":"old","path":"/data/f","type":"sendreceive","rescanIntervalS":19,"devices":[{"deviceID":"PEER","introducedBy":"SERVER"}]}]`)
+			io.WriteString(w, `[{"id":"f","label":"old","group":"Family","path":"/data/f","type":"sendreceive","rescanIntervalS":19,"devices":[{"deviceID":"PEER","introducedBy":"SERVER"}]}]`)
 		case r.Method == "GET" && r.URL.Path == "/rest/config/devices":
 			io.WriteString(w, `[{"deviceID":"PEER","name":"old","compression":"metadata","ignoredFolders":[{"id":"earlier","label":"original","time":"2024-01-01T00:00:00Z"}]}]`)
 		case r.Method == "PUT" && r.URL.Path == "/rest/config/folders/f":
@@ -65,7 +65,7 @@ func TestFoldersAndDevicesPreserveUnknownConfiguration(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Fatal(err)
 			}
-			if body["rescanIntervalS"] != float64(19) || body["label"] != "new" {
+			if body["rescanIntervalS"] != float64(19) || body["label"] != "new" || body["group"] != "Family" {
 				t.Errorf("folder fields lost: %v", body)
 			}
 			nested := body["devices"].([]any)[0].(map[string]any)
