@@ -36,11 +36,11 @@ func TestResourcePageHasAccessibleNavigationAndActions(t *testing.T) {
 		`name="viewport"`, `aria-current="page"`, `id="create-folder"`, `id="add-peer"`,
 		`<dialog class="creation-dialog" id="folder-dialog"`, `<dialog class="creation-dialog" id="peer-dialog"`, `src="/assets/dialogs.js"`,
 		`action="/folders"`, `action="/devices"`, `action="/folders/photos/shares"`,
-		`action="/folders/photos/delete"`, `action="/devices/peer/delete"`,
+		`action="/folders/photos/delete"`, `<table class="data-table">`, `<th scope="col">Shared with</th>`, `href="/?tab=folders" aria-current="page"`,
 		`name="csrf" value="`, `name="label"`, `name="group"`, `name="id"`, `name="subpath"`,
 		`name="device"`, `name="action" value="add"`, `name="action" value="remove"`,
-		`name="confirm"`, `Group: Family`, `Subpath: my-photos`, `Server last scan: Unavailable`,
-		`Shared with`, `name="device" value="peer"`, `Unshare Laptop from Photos`, `Sync: Unavailable`, `Last seen: Unavailable`,
+		`name="confirm"`, `Group: Family`, `Subpath: my-photos`, `Server last scan`,
+		`Shared with`, `name="device" value="peer"`, `Unshare Laptop from Photos`, `Sync: Unavailable`,
 	} {
 		if !strings.Contains(body, fragment) {
 			t.Errorf("dashboard missing %q", fragment)
@@ -55,7 +55,7 @@ func TestResourcePageHasAccessibleNavigationAndActions(t *testing.T) {
 		t.Fatalf("admin overview: %d %s", admin.Code, admin.Body.String())
 	}
 	body = admin.Body.String()
-	for _, fragment := range []string{`Photos`, `Laptop`, `Shared with`, `Server last scan: Unavailable`, `Group: Family`, `Subpath: my-photos`, `action="/logout"`} {
+	for _, fragment := range []string{`Photos`, `Laptop`, `Shared with`, `Server last scan`, `Group: Family`, `Subpath: my-photos`, `action="/logout"`, `href="/admin?tab=folders" aria-current="page"`} {
 		if !strings.Contains(body, fragment) {
 			t.Errorf("overview missing %q", fragment)
 		}
@@ -64,6 +64,33 @@ func TestResourcePageHasAccessibleNavigationAndActions(t *testing.T) {
 		if strings.Contains(body, fragment) {
 			t.Errorf("overview leaked write controls or private data: %q", fragment)
 		}
+	}
+
+	peers := serve(handler, cookie, "GET", "/?tab=peers", nil)
+	if peers.Code != 200 || !strings.Contains(peers.Body.String(), `href="/?tab=peers" aria-current="page"`) || !strings.Contains(peers.Body.String(), `<table class="data-table data-table--peers">`) || !strings.Contains(peers.Body.String(), `action="/devices/peer/delete"`) || !strings.Contains(peers.Body.String(), `Last seen</th>`) || strings.Contains(peers.Body.String(), `action="/folders/photos/shares"`) {
+		t.Fatalf("peer tab did not show only devices: %d %s", peers.Code, peers.Body.String())
+	}
+	adminPeers := serve(handler, cookie, "GET", "/admin?tab=peers", nil)
+	if adminPeers.Code != 200 || !strings.Contains(adminPeers.Body.String(), `href="/admin?tab=peers" aria-current="page"`) || !strings.Contains(adminPeers.Body.String(), `Laptop`) || strings.Contains(adminPeers.Body.String(), `action="/devices`) || strings.Contains(adminPeers.Body.String(), `Group: Family`) {
+		t.Fatalf("admin peer tab exposed write controls or wrong category: %d %s", adminPeers.Code, adminPeers.Body.String())
+	}
+}
+
+func TestResourceTabsDefaultAndEmptyStates(t *testing.T) {
+	handler, _, cookie := fixture(t)
+	for _, path := range []string{"/", "/?tab=folders", "/?tab=unknown"} {
+		page := serve(handler, cookie, "GET", path, nil)
+		if page.Code != 200 || !strings.Contains(page.Body.String(), `href="/?tab=folders" aria-current="page"`) || !strings.Contains(page.Body.String(), `No folders yet.`) || strings.Contains(page.Body.String(), `No peer devices yet.`) {
+			t.Errorf("folder default at %s: %d %s", path, page.Code, page.Body.String())
+		}
+	}
+	page := serve(handler, cookie, "GET", "/?tab=peers", nil)
+	if page.Code != 200 || !strings.Contains(page.Body.String(), `No peer devices yet.`) || strings.Contains(page.Body.String(), `No folders yet.`) || !strings.Contains(page.Body.String(), `id="create-folder"`) || !strings.Contains(page.Body.String(), `id="add-peer"`) {
+		t.Fatalf("empty peer view or dialog fallback missing: %d %s", page.Code, page.Body.String())
+	}
+	admin := serve(handler, cookie, "GET", "/admin?tab=unknown", nil)
+	if admin.Code != 200 || !strings.Contains(admin.Body.String(), `href="/admin?tab=folders" aria-current="page"`) || strings.Contains(admin.Body.String(), `No peer devices yet.`) {
+		t.Fatalf("unknown admin tab did not fall back to folders: %d %s", admin.Code, admin.Body.String())
 	}
 }
 

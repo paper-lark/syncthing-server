@@ -13,7 +13,7 @@ import (
 	"syncthing-server/internal/web"
 )
 
-func TestAdminSeesOwnedFolderStatisticsWithoutRawDaemonData(t *testing.T) {
+func TestAdminSeesLocalFolderCompletionWithoutRawDaemonData(t *testing.T) {
 	_, db, cookie := fixture(t)
 	alice, err := db.FindUser(context.Background(), "https://issuer.example", "alice")
 	if err != nil {
@@ -29,6 +29,11 @@ func TestAdminSeesOwnedFolderStatisticsWithoutRawDaemonData(t *testing.T) {
 				t.Errorf("foreign folder queried: %s", r.URL)
 			}
 			json.NewEncoder(w).Encode(map[string]any{"state": "idle", "globalBytes": 512, "needBytes": 128, "path": "/private/server/path", "foreign": "other-user"})
+		case "/rest/db/completion":
+			if r.URL.Query().Get("folder") != "owned-folder" || r.URL.Query().Has("device") {
+				t.Errorf("local completion must have owned folder and no device: %s", r.URL)
+			}
+			json.NewEncoder(w).Encode(map[string]any{"completion": 75.59, "path": "/private/server/path", "foreign": "other-user"})
 		case "/rest/system/status":
 			json.NewEncoder(w).Encode(map[string]string{"myID": "SERVER"})
 		default:
@@ -42,7 +47,7 @@ func TestAdminSeesOwnedFolderStatisticsWithoutRawDaemonData(t *testing.T) {
 	}
 	handler := web.New(config.Config{BaseURL: "https://example.test", Admins: []config.Admin{{Issuer: alice.Issuer, Subject: alice.Subject}}}, db, client, nil, nil)
 	res := serve(handler, cookie, "GET", "/admin", nil)
-	if res.Code != 200 || !strings.Contains(res.Body.String(), "512 bytes") || !strings.Contains(res.Body.String(), "128 bytes remaining") || strings.Contains(res.Body.String(), "/private/server/path") || strings.Contains(res.Body.String(), "other-user") {
+	if res.Code != 200 || !strings.Contains(res.Body.String(), "Server: 75.5% synced") || !strings.Contains(res.Body.String(), "Folder total: 512 bytes") || strings.Contains(res.Body.String(), "server needs:") || !strings.Contains(res.Body.String(), "Server last scan: Unavailable") || strings.Contains(res.Body.String(), `<th scope="col">Server last scan</th>`) || strings.Contains(res.Body.String(), "/private/server/path") || strings.Contains(res.Body.String(), "other-user") {
 		t.Fatalf("statistics missing or raw data leaked: %d %s", res.Code, res.Body.String())
 	}
 }

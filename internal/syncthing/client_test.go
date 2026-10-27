@@ -215,6 +215,7 @@ func TestStatusAndStatsEndpoints(t *testing.T) {
 	paths := map[string]string{
 		"/rest/db/status?folder=f%2F1":                 `{"state":"idle"}`,
 		"/rest/db/completion?device=PEER&folder=f%2F1": `{"completion":100}`,
+		"/rest/db/completion?folder=f%2F1":             `{"completion":75.5}`,
 		"/rest/stats/folder":                           `{"f/1":{"lastScan":"today"}}`,
 		"/rest/stats/device":                           `{"PEER":{"lastSeen":"today"}}`,
 		"/rest/system/connections":                     `{"connections":{"PEER":{"connected":true}},"total":{"inBytesTotal":999}}`,
@@ -235,7 +236,10 @@ func TestStatusAndStatsEndpoints(t *testing.T) {
 		t.Fatalf("folder status: %s %v", value, err)
 	}
 	if value, err := c.Completion(ctx, "f/1", "PEER"); err != nil || !strings.Contains(string(value), `100`) {
-		t.Fatalf("completion: %s %v", value, err)
+		t.Fatalf("peer completion: %s %v", value, err)
+	}
+	if value, err := c.Completion(ctx, "f/1", ""); err != nil || !strings.Contains(string(value), `75.5`) {
+		t.Fatalf("local completion: %s %v", value, err)
 	}
 	if value, err := c.FolderStats(ctx); err != nil || len(value) != 1 {
 		t.Fatalf("folder stats: %v %v", value, err)

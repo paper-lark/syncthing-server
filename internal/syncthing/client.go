@@ -317,7 +317,11 @@ func (c *Client) Connections(ctx context.Context) (json.RawMessage, error) {
 }
 func (c *Client) Completion(ctx context.Context, folderID, deviceID string) (json.RawMessage, error) {
 	var result json.RawMessage
-	err := c.do(ctx, "GET", "/rest/db/completion", url.Values{"folder": {folderID}, "device": {deviceID}}, nil, &result)
+	query := url.Values{"folder": {folderID}}
+	if deviceID != "" {
+		query.Set("device", deviceID)
+	}
+	err := c.do(ctx, "GET", "/rest/db/completion", query, nil, &result)
 	return result, err
 }
 

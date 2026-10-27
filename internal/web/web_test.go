@@ -129,6 +129,12 @@ func TestDashboardAndAdminOmitPathsAndSecrets(t *testing.T) {
 	if e = db.CreateFolder(context.Background(), alice.ID, "alice-folder", "Alice files"); e != nil {
 		t.Fatal(e)
 	}
+	if e = db.CreateDevice(context.Background(), alice.ID, "alice-peer", "Alice laptop"); e != nil {
+		t.Fatal(e)
+	}
+	if e = db.CreateDevice(context.Background(), bob.ID, "bob-peer", "Bob laptop"); e != nil {
+		t.Fatal(e)
+	}
 	r := serve(h, c, "GET", "/", nil)
 	if r.Code != 200 || strings.Contains(r.Body.String(), "Bob files") || !strings.Contains(r.Body.String(), "Alice files") || strings.Contains(r.Body.String(), alice.StorageArea) || strings.Contains(r.Body.String(), bob.StorageArea) {
 		t.Fatalf("dashboard leaked ownership or path: %d %s", r.Code, r.Body.String())
@@ -136,6 +142,14 @@ func TestDashboardAndAdminOmitPathsAndSecrets(t *testing.T) {
 	r = serve(h, c, "GET", "/admin", nil)
 	if r.Code != 200 || !strings.Contains(r.Body.String(), "Bob files") || strings.Contains(r.Body.String(), bob.StorageArea) || strings.Contains(r.Body.String(), "/folders/bob-folder/delete") {
 		t.Fatalf("admin overview leaked path or write actions: %d %s", r.Code, r.Body.String())
+	}
+	r = serve(h, c, "GET", "/?tab=peers", nil)
+	if r.Code != 200 || !strings.Contains(r.Body.String(), "Alice laptop") || strings.Contains(r.Body.String(), "Bob laptop") || strings.Contains(r.Body.String(), "Alice files") || strings.Contains(r.Body.String(), alice.StorageArea) {
+		t.Fatalf("peer dashboard leaked ownership or wrong category: %d %s", r.Code, r.Body.String())
+	}
+	r = serve(h, c, "GET", "/admin?tab=peers", nil)
+	if r.Code != 200 || !strings.Contains(r.Body.String(), "Bob laptop") || strings.Contains(r.Body.String(), "Bob files") || strings.Contains(r.Body.String(), bob.StorageArea) || strings.Contains(r.Body.String(), "/devices/bob-peer/delete") {
+		t.Fatalf("admin peer table leaked write actions or wrong category: %d %s", r.Code, r.Body.String())
 	}
 }
 func TestCreateFolderAndDeleteRequiresTypedID(t *testing.T) {
@@ -340,8 +354,12 @@ func TestDashboardOnlyDisplaysOwnedStatus(t *testing.T) {
 	}
 	h = web.New(config.Config{BaseURL: "https://example.test"}, db, client, nil, nil)
 	r := serve(h, c, "GET", "/", nil)
-	if r.Code != 200 || !strings.Contains(r.Body.String(), "idle") || !strings.Contains(r.Body.String(), "connected") || strings.Contains(r.Body.String(), "secret-server-path") || strings.Contains(r.Body.String(), "Other peer") {
-		t.Fatalf("status filtering failed: %d %s", r.Code, r.Body.String())
+	if r.Code != 200 || !strings.Contains(r.Body.String(), `<span class="state state--idle">idle</span>`) || strings.Contains(r.Body.String(), "secret-server-path") || strings.Contains(r.Body.String(), "Other peer") {
+		t.Fatalf("folder status filtering failed: %d %s", r.Code, r.Body.String())
+	}
+	r = serve(h, c, "GET", "/?tab=peers", nil)
+	if r.Code != 200 || !strings.Contains(r.Body.String(), `<span class="state state--connected">connected</span>`) || strings.Contains(r.Body.String(), "secret-server-path") || strings.Contains(r.Body.String(), "Other peer") {
+		t.Fatalf("peer status filtering failed: %d %s", r.Code, r.Body.String())
 	}
 }
 
@@ -554,17 +572,22 @@ func TestHTTPDeviceAddShareUnshareAndRemove(t *testing.T) {
 		t.Fatal(err)
 	}
 	handler := web.New(config.Config{BaseURL: "https://example.test"}, users, client, nil, files)
-	post := func(path string, fields url.Values) {
+	post := func(path string, fields url.Values) *httptest.ResponseRecorder {
 		t.Helper()
 		fields.Set("csrf", csrf(t, handler, session))
 		r := serve(handler, session, "POST", path, fields)
 		if r.Code != 303 {
 			t.Fatalf("POST %s: %d %s", path, r.Code, r.Body.String())
 		}
+		return r
 	}
-	post("/devices", url.Values{"id": {peer}, "name": {"Laptop"}})
+	if got := post("/devices", url.Values{"id": {peer}, "name": {"Laptop"}}).Header().Get("Location"); got != "/?tab=peers" {
+		t.Fatalf("new peer redirected to %q", got)
+	}
 	post("/devices", url.Values{"id": {other}, "name": {"Phone"}})
-	post("/folders", url.Values{"id": {"notes-id"}, "label": {"Notes"}, "group": {"Projects"}, "subpath": {"notes-dir"}})
+	if got := post("/folders", url.Values{"id": {"notes-id"}, "label": {"Notes"}, "group": {"Projects"}, "subpath": {"notes-dir"}}).Header().Get("Location"); got != "/" {
+		t.Fatalf("new folder redirected to %q", got)
+	}
 	page := serve(handler, session, "GET", "/", nil)
 	idMatch := regexp.MustCompile(`action="/folders/([^"]+)/shares"`).FindStringSubmatch(page.Body.String())
 	if len(idMatch) != 2 {
@@ -598,7 +621,9 @@ func TestHTTPDeviceAddShareUnshareAndRemove(t *testing.T) {
 	if strings.Contains(page.Body.String(), "Removing unshares:") || !strings.Contains(page.Body.String(), `aria-label="Unshare Laptop from Notes"`) {
 		t.Fatalf("folder sharing list or peer display incorrect: %s", page.Body.String())
 	}
-	post("/devices/"+peer+"/delete", url.Values{})
+	if got := post("/devices/"+peer+"/delete", url.Values{}).Header().Get("Location"); got != "/?tab=peers" {
+		t.Fatalf("removed peer redirected to %q", got)
+	}
 	folder = folders[folderID]
 	if len(folder.Devices) != 1 || folder.Devices[0].DeviceID != "SERVER" {
 		t.Fatalf("device removal left stale share: %+v", folder.Devices)
@@ -612,9 +637,9 @@ func TestHTTPDeviceAddShareUnshareAndRemove(t *testing.T) {
 	if len(history) < 2 || history[len(history)-2] != "update folder" || history[len(history)-1] != "delete device" {
 		t.Fatalf("device deleted before shares: %v", history)
 	}
-	page = serve(handler, session, "GET", "/", nil)
-	if strings.Contains(page.Body.String(), "Laptop") || !strings.Contains(page.Body.String(), "Phone") {
-		t.Fatalf("device removal not reflected in dashboard: %s", page.Body.String())
+	page = serve(handler, session, "GET", "/?tab=peers", nil)
+	if strings.Contains(page.Body.String(), "Laptop") || !strings.Contains(page.Body.String(), "Phone") || !strings.Contains(page.Body.String(), `<table class="data-table data-table--peers">`) {
+		t.Fatalf("device removal not reflected in peer table: %s", page.Body.String())
 	}
 }
 

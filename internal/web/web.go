@@ -248,10 +248,10 @@ var dialogsJS []byte
 var page = template.Must(template.New("page").Parse(pageHTML))
 
 type viewFolder struct {
-	ID, Label, FolderGroup, Subpath, Status, Stats string
-	LastScan, LastScanTime                         string
-	Devices                                        []viewDevice
-	Shared                                         []viewSharedDevice
+	ID, Label, FolderGroup, Subpath, Status, ServerCompletion, FolderTotal string
+	LastScan, LastScanTime                                                 string
+	Devices                                                                []viewDevice
+	Shared                                                                 []viewSharedDevice
 }
 type viewSharedDevice struct {
 	ID, Name, Status, Completion string
@@ -266,9 +266,16 @@ type group struct {
 	Blocked bool
 }
 type view struct {
-	Title, CSRF, ServerID string
-	IsAdmin, Editable     bool
-	Groups                []group
+	Title, CSRF, ServerID, Tab string
+	IsAdmin, Editable          bool
+	Groups                     []group
+}
+
+func resourceTab(r *http.Request) string {
+	if r.URL.Query().Get("tab") == "peers" {
+		return "peers"
+	}
+	return "folders"
 }
 
 func (a *app) isAdmin(u store.User) bool {
@@ -324,14 +331,10 @@ func peerCompletion(raw json.RawMessage) string {
 	return fmt.Sprintf("%.1f%% synced", math.Floor(*result.Completion*10)/10)
 }
 
-func (a *app) group(ctx context.Context, u store.User) (group, error) {
+func (a *app) group(ctx context.Context, u store.User, tab string) (group, error) {
 	g := group{Name: u.Name}
 	var err error
 	g.Blocked, _, err = a.users.WriteStatus(ctx, u.ID)
-	if err != nil {
-		return g, err
-	}
-	fs, err := a.users.UserFolders(ctx, u.ID)
 	if err != nil {
 		return g, err
 	}
@@ -359,7 +362,7 @@ func (a *app) group(ctx context.Context, u store.User) (group, error) {
 		return "unknown"
 	}
 	var deviceStats map[string]json.RawMessage
-	if a.daemon != nil && len(ds) != 0 {
+	if tab == "peers" && a.daemon != nil && len(ds) != 0 {
 		statsCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		deviceStats, _ = a.daemon.DeviceStats(statsCtx)
 		cancel()
@@ -369,6 +372,13 @@ func (a *app) group(ctx context.Context, u store.User) (group, error) {
 		v.LastSeen, v.LastSeenTime = deviceLastSeen(deviceStats[d.ID])
 		g.Devices = append(g.Devices, v)
 	}
+	if tab == "peers" {
+		return g, nil
+	}
+	fs, err := a.users.UserFolders(ctx, u.ID)
+	if err != nil {
+		return g, err
+	}
 	var folderStats map[string]json.RawMessage
 	if a.daemon != nil && len(fs) != 0 {
 		statsCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -376,7 +386,7 @@ func (a *app) group(ctx context.Context, u store.User) (group, error) {
 		cancel()
 	}
 	for _, f := range fs {
-		v := viewFolder{ID: f.ID, Label: f.Label, FolderGroup: f.Group, Subpath: f.Subpath}
+		v := viewFolder{ID: f.ID, Label: f.Label, FolderGroup: f.Group, Subpath: f.Subpath, ServerCompletion: "Unavailable"}
 		v.LastScan, v.LastScanTime = folderLastScan(folderStats[f.ID])
 		if a.daemon != nil {
 			raw, e := a.daemon.FolderStatus(ctx, f.ID)
@@ -386,18 +396,23 @@ func (a *app) group(ctx context.Context, u store.User) (group, error) {
 			var status struct {
 				State       string `json:"state"`
 				GlobalBytes *int64 `json:"globalBytes"`
-				NeedBytes   *int64 `json:"needBytes"`
 			}
 			if e = json.Unmarshal(raw, &status); e != nil {
 				return g, e
+			}
+			if status.GlobalBytes != nil && *status.GlobalBytes >= 0 {
+				v.FolderTotal = fmt.Sprintf("%d bytes", *status.GlobalBytes)
 			}
 			// Only render known status vocabulary, never arbitrary daemon JSON.
 			switch status.State {
 			case "idle", "scanning", "syncing", "sync-preparing", "scan-waiting", "sync-waiting", "error":
 				v.Status = status.State
 			}
-			if status.GlobalBytes != nil && status.NeedBytes != nil && *status.GlobalBytes >= 0 && *status.NeedBytes >= 0 {
-				v.Stats = fmt.Sprintf("%d bytes, %d bytes remaining", *status.GlobalBytes, *status.NeedBytes)
+			completionCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			completion, e := a.daemon.Completion(completionCtx, f.ID, "")
+			cancel()
+			if e == nil {
+				v.ServerCompletion = peerCompletion(completion)
 			}
 		}
 		shares, e := a.users.FolderShares(ctx, u.ID, f.ID)
@@ -432,12 +447,13 @@ func (a *app) dashboard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	g, err := a.group(r.Context(), u)
+	tab := resourceTab(r)
+	g, err := a.group(r.Context(), u, tab)
 	if err != nil {
 		http.Error(w, "dashboard unavailable", 500)
 		return
 	}
-	v := view{Title: "My resources", CSRF: a.csrf(token), IsAdmin: a.isAdmin(u), Editable: true, Groups: []group{g}}
+	v := view{Title: "My resources", CSRF: a.csrf(token), Tab: tab, IsAdmin: a.isAdmin(u), Editable: true, Groups: []group{g}}
 	if a.daemon != nil {
 		v.ServerID, err = a.daemon.MyID(r.Context())
 		if err != nil {
@@ -465,9 +481,10 @@ func (a *app) admin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "overview unavailable", 500)
 		return
 	}
-	v := view{Title: "Overview", CSRF: a.csrf(token), IsAdmin: true}
+	tab := resourceTab(r)
+	v := view{Title: "Overview", CSRF: a.csrf(token), Tab: tab, IsAdmin: true}
 	for _, user := range all {
-		g, e := a.group(r.Context(), user)
+		g, e := a.group(r.Context(), user, tab)
 		if e != nil {
 			http.Error(w, "overview unavailable", 500)
 			return
@@ -517,7 +534,11 @@ func (a *app) operation(w http.ResponseWriter, r *http.Request, u store.User, ki
 		fail(w, err)
 		return
 	}
-	http.Redirect(w, r, "/", 303)
+	target := "/"
+	if kind == "create-device" || kind == "delete-device" {
+		target = "/?tab=peers"
+	}
+	http.Redirect(w, r, target, 303)
 }
 func validID(id string) bool { return syncthing.ValidDeviceID(id) }
 

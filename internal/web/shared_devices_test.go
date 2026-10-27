@@ -62,7 +62,7 @@ func TestFolderDisplaysOnlyOwnedSharesAndScopedTelemetry(t *testing.T) {
 			if r.URL.Query().Get("folder") != "alice-folder" {
 				t.Errorf("queried another user's folder: %s", r.URL)
 			}
-			json.NewEncoder(w).Encode(map[string]string{"state": "idle"})
+			json.NewEncoder(w).Encode(map[string]any{"state": "idle", "globalBytes": 13})
 		case "/rest/stats/device":
 			deviceStatsRequests++
 			json.NewEncoder(w).Encode(map[string]any{"online-peer": map[string]any{"lastSeen": "2026-10-26T11:22:33Z", "path": "/private/hidden"}, "offline-peer": map[string]any{"lastSeen": "1970-01-01T00:00:00Z"}, "unshared-peer": map[string]any{"lastSeen": "not-a-time"}, "zero-peer": map[string]any{"lastSeen": "0001-01-01T00:00:00Z"}, "bob-peer": map[string]any{"lastSeen": "2025-01-01T00:00:00Z", "name": "SECRET_MARKER"}})
@@ -71,10 +71,21 @@ func TestFolderDisplaysOnlyOwnedSharesAndScopedTelemetry(t *testing.T) {
 			json.NewEncoder(w).Encode(map[string]any{"alice-folder": map[string]any{"lastScan": "2026-10-26T10:15:30Z", "path": "/private/hidden"}, "bob-folder": map[string]any{"lastScan": "2025-01-01T00:00:00Z", "name": "SECRET_MARKER"}})
 		case "/rest/db/completion":
 			completionQueries = append(completionQueries, r.URL.RawQuery)
-			if r.URL.Query().Get("folder") != "alice-folder" || r.URL.Query().Get("device") != "online-peer" {
-				t.Errorf("queried unshared or cross-user completion: %s", r.URL)
+			if r.URL.Query().Get("folder") != "alice-folder" {
+				t.Errorf("queried cross-user completion: %s", r.URL)
 			}
-			json.NewEncoder(w).Encode(map[string]any{"completion": 82.39, "path": "/private/hidden", "foreign": "SECRET_MARKER"})
+			switch r.URL.Query().Get("device") {
+			case "":
+				if r.URL.Query().Has("device") {
+					t.Errorf("local completion request must omit device: %s", r.URL)
+				}
+				json.NewEncoder(w).Encode(map[string]any{"completion": 100, "foreign": "SECRET_MARKER"})
+			case "online-peer":
+				json.NewEncoder(w).Encode(map[string]any{"completion": 82.39, "path": "/private/hidden", "foreign": "SECRET_MARKER"})
+			default:
+				t.Errorf("queried unshared peer completion: %s", r.URL)
+				http.NotFound(w, r)
+			}
 		default:
 			http.NotFound(w, r)
 		}
@@ -90,17 +101,35 @@ func TestFolderDisplaysOnlyOwnedSharesAndScopedTelemetry(t *testing.T) {
 		t.Fatalf("folder dashboard: %d %s", response.Code, response.Body.String())
 	}
 	body := response.Body.String()
-	for _, fragment := range []string{"Shared with", "Laptop", "Tablet", "Sync: 82.3% synced", "disconnected", "Server last scan: ", "26 Oct 2026, 10:15 UTC", `datetime="2026-10-26T10:15:30Z"`, "Last seen: ", "26 Oct 2026, 11:22 UTC", `datetime="2026-10-26T11:22:33Z"`, "Last seen: Never seen", "Last seen: Unavailable", `name="device" value="online-peer"`, `name="device" value="offline-peer"`, `aria-label="Unshare Laptop from Album"`} {
+	for _, fragment := range []string{"Shared with", "Laptop", "Tablet", "Sync: 82.3% synced", "Server: 100.0% synced", "Folder total: 13 bytes", "disconnected", "Server last scan", "26 Oct 2026, 10:15 UTC", `datetime="2026-10-26T10:15:30Z"`, `name="device" value="online-peer"`, `name="device" value="offline-peer"`, `aria-label="Unshare Laptop from Album"`} {
 		if !strings.Contains(body, fragment) {
 			t.Errorf("missing owned share data %q", fragment)
 		}
 	}
-	if strings.Count(body, "Server last scan:") != 1 || strings.Count(body, "Last seen: Never seen") != 2 || statsRequests != 1 || deviceStatsRequests != 1 || len(completionQueries) != 1 {
-		t.Errorf("telemetry request scope: scans %d, folder stats %d, device stats %d, completion requests %v", strings.Count(body, "Server last scan:"), statsRequests, deviceStatsRequests, completionQueries)
+	if statsRequests != 1 || deviceStatsRequests != 0 || len(completionQueries) != 2 || strings.Contains(body, "Last seen</th>") {
+		t.Errorf("folder view queried or rendered unrelated device stats: folder stats %d, device stats %d, completion requests %v", statsRequests, deviceStatsRequests, completionQueries)
 	}
 	for _, secret := range []string{"Secret album", "Secret device", "SECRET_MARKER", "/private/hidden", `aria-label="Unshare Phone`} {
 		if strings.Contains(body, secret) {
 			t.Errorf("unowned or unshared data leaked: %q", secret)
+		}
+	}
+	peers := serve(handler, cookie, "GET", "/?tab=peers", nil)
+	if peers.Code != 200 {
+		t.Fatalf("peer dashboard: %d %s", peers.Code, peers.Body.String())
+	}
+	body = peers.Body.String()
+	for _, fragment := range []string{"Last seen</th>", "26 Oct 2026, 11:22 UTC", `datetime="2026-10-26T11:22:33Z"`, "Phone", "Spare tablet", "Never seen", "Unavailable"} {
+		if !strings.Contains(body, fragment) {
+			t.Errorf("missing owned peer data %q", fragment)
+		}
+	}
+	if strings.Count(body, "Never seen") != 2 || statsRequests != 1 || deviceStatsRequests != 1 || len(completionQueries) != 2 || strings.Contains(body, "Server last scan") {
+		t.Errorf("peer view queried or rendered unrelated folder stats: folder stats %d, device stats %d, completion requests %v", statsRequests, deviceStatsRequests, completionQueries)
+	}
+	for _, secret := range []string{"Secret album", "Secret device", "SECRET_MARKER", "/private/hidden"} {
+		if strings.Contains(body, secret) {
+			t.Errorf("peer view leaked cross-user data: %q", secret)
 		}
 	}
 }
@@ -140,7 +169,11 @@ func TestMissingPeerTelemetryKeepsFolderVisible(t *testing.T) {
 	}
 	handler := web.New(config.Config{BaseURL: "https://example.test"}, db, client, nil, nil)
 	response := serve(handler, cookie, "GET", "/", nil)
-	if response.Code != 200 || !strings.Contains(response.Body.String(), "Server last scan: Unavailable") || !strings.Contains(response.Body.String(), "Sync: Unavailable") || !strings.Contains(response.Body.String(), "Laptop") {
+	if response.Code != 200 || !strings.Contains(response.Body.String(), "Server last scan: Unavailable") || !strings.Contains(response.Body.String(), "Server: Unavailable") || !strings.Contains(response.Body.String(), "Sync: Unavailable") || !strings.Contains(response.Body.String(), "Laptop") {
 		t.Fatalf("telemetry errors hid folder sharing: %d %s", response.Code, response.Body.String())
+	}
+	peers := serve(handler, cookie, "GET", "/?tab=peers", nil)
+	if peers.Code != 200 || !strings.Contains(peers.Body.String(), "Last seen</th>") || !strings.Contains(peers.Body.String(), "Unavailable") || !strings.Contains(peers.Body.String(), "Laptop") {
+		t.Fatalf("telemetry errors hid peer device: %d %s", peers.Code, peers.Body.String())
 	}
 }

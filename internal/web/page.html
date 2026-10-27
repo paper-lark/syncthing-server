@@ -54,44 +54,43 @@
     .server a { color: #d4f6ee; }
     .server-link { display: inline-block; margin-top: 1rem; }
     code, .resource-id { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: .83rem; }
-    .owner { margin-top: 3.5rem; }
+    .resource-tabs { display: flex; gap: clamp(1.25rem, 4vw, 3rem); border-bottom: 1px solid var(--rule); margin: 0 0 2.5rem; }
+    .resource-tabs a { display: inline-block; padding: .85rem .15rem .8rem; margin-bottom: -1px; border-bottom: 3px solid transparent; font-size: 1.08rem; font-weight: 700; text-decoration: none; color: var(--muted); }
+    .resource-tabs a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--harbor); }
+    .resource-tabs a:hover { color: var(--harbor); }
+    .owner { margin-top: 3rem; }
     .owner:first-of-type { margin-top: 0; }
-    .owner-name { font-size: clamp(1.7rem, 3vw, 2.35rem); margin: 0 0 1.5rem; }
-    .resource-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: clamp(1.25rem, 3vw, 2.5rem); }
-    .resource-list { min-width: 0; border-top: 2px solid var(--ink); }
-    .list-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; padding: .9rem 0 .65rem; }
-    .list-heading h3 { font-size: 1.15rem; margin: 0; }
-    .list-heading a { font-size: .88rem; }
-    .resource { min-width: 0; position: relative; padding: 1.1rem 0 1.35rem 1.35rem; border-top: 1px solid var(--rule); }
-    .resource::before { content: ""; position: absolute; left: 0; top: 1.55rem; width: .5rem; height: .5rem; border: 2px solid var(--harbor); background: var(--mist); border-radius: 50%; }
-    .resource::after { content: ""; position: absolute; left: .31rem; top: 2.05rem; bottom: 0; width: 1px; background: var(--rule); }
-    .resource:last-child::after { display: none; }
-    .resource-heading { display: flex; align-items: baseline; flex-wrap: wrap; justify-content: space-between; gap: .35rem 1rem; }
-    .resource h4 { font-size: 1.12rem; margin: 0; overflow-wrap: anywhere; }
-    .resource-id { display: block; margin: .2rem 0 .85rem; color: var(--muted); overflow-wrap: anywhere; }
+    .owner-name { font-size: clamp(1.7rem, 3vw, 2.35rem); margin: 0 0 1.25rem; }
+    .table-toolbar { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: .85rem; }
+    .table-toolbar h3 { font-size: 1.15rem; margin: 0; }
+    .table-scroll { overflow-x: auto; border-top: 2px solid var(--ink); }
+    .table-hint { display: none; }
+    .data-table { width: 100%; min-width: 63rem; border-collapse: collapse; }
+    .data-table--peers { min-width: 42rem; }
+    .data-table th, .data-table td { padding: 1rem .9rem 1.2rem 0; vertical-align: top; text-align: left; overflow-wrap: anywhere; }
+    .data-table thead th { font-size: .8rem; color: var(--muted); border-bottom: 1px solid var(--rule); }
+    .data-table tbody tr + tr > * { border-top: 1px solid var(--rule); }
+    .data-table tbody th { font-weight: 400; }
+    .data-table .cell-title { display: block; font-weight: 700; }
+    .resource-id { display: block; margin: .3rem 0 0; color: var(--muted); overflow-wrap: anywhere; }
+    .cell-detail { display: block; color: var(--muted); font-size: .87rem; margin: .3rem 0 0; }
+    .cell-detail:first-child { margin-top: 0; }
+    .table-empty { color: var(--muted); }
     .state { display: inline-flex; align-items: center; gap: .45rem; color: var(--muted); font-size: .84rem; white-space: nowrap; }
     .state::before { content: ""; width: .55rem; height: .55rem; border-radius: 50%; background: currentColor; flex: none; }
     .state--idle, .state--connected { color: var(--good); }
     .state--scanning, .state--syncing, .state--sync-preparing, .state--scan-waiting, .state--sync-waiting { color: var(--warning); }
     .state--error, .state--disconnected { color: var(--danger); }
-    .metadata, .stats { color: var(--muted); font-size: .88rem; margin: .5rem 0 0; }
-    .metadata span + span::before { content: " / "; padding-inline: .25rem; color: #6d8389; }
-    .empty { border-top: 1px solid var(--rule); color: var(--muted); padding: 1.15rem 0; margin: 0; }
-    .resource-actions { margin-top: 1.15rem; }
-    .scan-time { margin: .65rem 0 0; color: var(--muted); font-size: .88rem; }
-    .shared-with { margin-top: 1.15rem; padding-left: 1rem; border-left: 1px solid var(--rule); }
-    .shared-with h5 { font-size: .87rem; margin: 0 0 .5rem; }
-    .shared-with > p { margin: 0; color: var(--muted); font-size: .88rem; }
     .shared-peers { list-style: none; margin: 0; padding: 0; }
-    .shared-peer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .4rem 1rem; padding: .65rem 0; border-top: 1px solid var(--rule); }
-    .peer-details { min-width: 0; }
+    .shared-peer { padding: .45rem 0; border-bottom: 1px solid var(--rule); }
+    .shared-peer:first-child { padding-top: 0; }
     .peer-name { display: block; font-weight: 700; overflow-wrap: anywhere; }
-    .peer-progress { color: var(--muted); font-size: .84rem; }
+    .peer-progress { display: block; color: var(--muted); font-size: .84rem; }
     .unshare-button { min-height: 2.65rem; color: var(--danger); text-decoration: underline; text-underline-offset: .2em; }
     .unshare-button:hover { color: var(--danger) !important; }
-    .share-form { display: flex; align-items: end; flex-wrap: wrap; gap: .5rem; }
-    .share-form label { flex: 1 1 10rem; }
+    .share-form { display: grid; gap: .5rem; margin-bottom: .8rem; }
     .share-form select { width: 100%; }
+    .share-form button { width: fit-content; }
     label { display: block; color: var(--ink); font-size: .9rem; font-weight: 700; }
     label > input, label > select { display: block; margin-top: .35rem; }
     input, select { min-width: 0; width: 100%; min-height: 2.65rem; border: 1px solid #91aab0; border-radius: .3rem; background: var(--paper); padding: .55rem .7rem; color: var(--ink); }
@@ -99,7 +98,7 @@
     button:not(.text-button):hover { background: #104650; }
     details { margin-top: 1rem; font-size: .87rem; }
     summary { width: fit-content; color: var(--muted); text-decoration: underline; text-underline-offset: .2em; }
-    .resource details[open] { border-left: 2px solid var(--danger); padding-left: .9rem; }
+    .data-table details[open] { border-left: 2px solid var(--danger); padding-left: .9rem; }
     .danger-form { margin-top: .9rem; display: grid; gap: .65rem; max-width: 30rem; }
     .danger-form p { color: var(--muted); margin: 0; }
     .danger-form button { width: fit-content; border-color: var(--danger) !important; background: var(--danger) !important; }
@@ -117,24 +116,27 @@
     .create-panel form { display: grid; gap: 1rem; }
     .create-panel button { width: fit-content; margin-top: .25rem; }
     .field-note { display: block; color: var(--muted); font-size: .8rem; font-weight: 400; margin-top: .3rem; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
     .creation-dialog { width: min(36rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; margin: auto; border: 1px solid var(--rule); border-radius: .45rem; padding: clamp(1.25rem, 4vw, 2rem); background: var(--paper); color: var(--ink); box-shadow: 0 1.2rem 3rem #192d3540; }
     .creation-dialog::backdrop { background: #192d35a8; }
     .creation-dialog .create-panel { padding: 0; border: 0; border-radius: 0; }
     .creation-dialog .create-panel h3 { padding-right: 4rem; }
     .dialog-close { float: right; min-height: 2.65rem; }
     @media (max-width: 820px) {
-      .intro, .resource-grid, .create-grid { grid-template-columns: 1fr; }
+      .intro, .create-grid { grid-template-columns: 1fr; }
       .intro { gap: 1.5rem; }
+      .data-table--peers { min-width: 46rem; table-layout: fixed; }
+      .data-table--peers th:first-child { width: 16rem; }
+      .table-hint { display: block; color: var(--muted); font-size: .85rem; margin: .5rem 0 0; }
     }
     @media (max-width: 560px) {
       .shell { width: min(100% - 2rem, 76rem); }
       .site-header .shell { align-items: start; flex-direction: column; gap: .35rem; padding-block: .9rem; }
       .site-nav { gap: .4rem 1.15rem; }
       main { padding-top: 2.5rem; }
-      .share-form button { flex: 1 1 auto; }
     }
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }
-    @media (forced-colors: active) { .resource::before, .state::before { border: 1px solid currentColor; } }
+    @media (forced-colors: active) { .state::before { border: 1px solid currentColor; } }
   </style>
   {{if .Editable}}<script src="/assets/dialogs.js" defer></script>{{end}}
 </head>
@@ -164,83 +166,91 @@
       </aside>
       {{end}}
     </div>
+    <nav class="resource-tabs" aria-label="Resource categories">
+      <a href="{{if .Editable}}/{{else}}/admin{{end}}?tab=folders" {{if eq .Tab "folders"}}aria-current="page"{{end}}>Folders</a>
+      <a href="{{if .Editable}}/{{else}}/admin{{end}}?tab=peers" {{if eq .Tab "peers"}}aria-current="page"{{end}}>Peer devices</a>
+    </nav>
     {{range .Groups}}
     <section class="owner" aria-label="Resources for {{.Name}}">
       <h2 class="owner-name">{{.Name}}</h2>
-      <div class="resource-grid">
-        <section class="resource-list" aria-label="Folders for {{.Name}}">
-          <div class="list-heading"><h3>Folders</h3>{{if $.Editable}}<a href="#create-folder">Create folder</a>{{end}}</div>
-          {{range .Folders}}
-          <article class="resource">
-            <div class="resource-heading"><h4>{{.Label}}</h4>{{if .Status}}<span class="state state--{{.Status}}">{{.Status}}</span>{{end}}</div>
-            <span class="resource-id">{{.ID}}</span>
-            <p class="metadata"><span>Group: {{if .FolderGroup}}{{.FolderGroup}}{{else}}ungrouped{{end}}</span><span>Subpath: {{.Subpath}}</span></p>
-            {{if .Stats}}<p class="stats">{{.Stats}}</p>{{end}}
-            <p class="scan-time">Server last scan: {{if .LastScanTime}}<time datetime="{{.LastScanTime}}">{{.LastScan}}</time>{{else}}{{.LastScan}}{{end}}</p>
-            <div class="shared-with">
-              <h5>Shared with</h5>
-              {{$folderID := .ID}}{{$folderLabel := .Label}}
-              {{if .Shared}}
-              <ul class="shared-peers">
-                {{range .Shared}}
-                <li class="shared-peer">
-                  <div class="peer-details"><span class="peer-name">{{.Name}}</span><span class="state state--{{.Status}}">{{.Status}}</span> <span class="peer-progress">Sync: {{.Completion}}</span></div>
-                  {{if $.Editable}}
-                  <form method="post" action="/folders/{{$folderID}}/shares">
-                    <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="device" value="{{.ID}}"><button class="text-button unshare-button" type="submit" name="action" value="remove" aria-label="Unshare {{.Name}} from {{$folderLabel}}">Unshare</button>
-                  </form>
+      {{if eq $.Tab "folders"}}
+      <div class="table-toolbar"><h3>Folders</h3>{{if $.Editable}}<a href="#create-folder">Create folder</a>{{end}}</div>
+      <div class="table-scroll" role="region" aria-label="Folders for {{.Name}}" tabindex="0">
+        <table class="data-table">
+          <caption class="sr-only">Folders for {{.Name}}</caption>
+          <thead><tr><th scope="col">Folder</th><th scope="col">Group / subpath</th><th scope="col">Status</th><th scope="col">Shared with</th>{{if $.Editable}}<th scope="col">Actions</th>{{end}}</tr></thead>
+          <tbody>
+            {{range .Folders}}
+            <tr>
+              <th scope="row"><span class="cell-title">{{.Label}}</span><span class="resource-id">{{.ID}}</span></th>
+              <td><span class="cell-detail">Group: {{if .FolderGroup}}{{.FolderGroup}}{{else}}ungrouped{{end}}</span><span class="cell-detail">Subpath: {{.Subpath}}</span></td>
+              <td>{{if .Status}}<span class="state state--{{.Status}}">{{.Status}}</span>{{else}}Unavailable{{end}}<span class="cell-detail">Server: {{.ServerCompletion}}</span>{{if .FolderTotal}}<span class="cell-detail">Folder total: {{.FolderTotal}}</span>{{end}}<span class="cell-detail">Server last scan: {{if .LastScanTime}}<time datetime="{{.LastScanTime}}">{{.LastScan}}</time>{{else}}{{.LastScan}}{{end}}</span></td>
+              <td>
+                {{$folderID := .ID}}{{$folderLabel := .Label}}
+                {{if .Shared}}
+                <ul class="shared-peers">
+                  {{range .Shared}}
+                  <li class="shared-peer">
+                    <span class="peer-name">{{.Name}}</span>
+                    <span class="state state--{{.Status}}">{{.Status}}</span>
+                    <span class="peer-progress">Sync: {{.Completion}}</span>
+                    {{if $.Editable}}
+                    <form method="post" action="/folders/{{$folderID}}/shares">
+                      <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="device" value="{{.ID}}"><button class="text-button unshare-button" type="submit" name="action" value="remove" aria-label="Unshare {{.Name}} from {{$folderLabel}}">Unshare</button>
+                    </form>
+                    {{end}}
+                  </li>
                   {{end}}
-                </li>
-                {{end}}
-              </ul>
-              {{else}}<p>Not shared with any peers yet.</p>{{end}}
-            </div>
-            {{if $.Editable}}
-            <div class="resource-actions">
-              {{if .Devices}}
-              <form class="share-form" method="post" action="/folders/{{.ID}}/shares">
-                <input type="hidden" name="csrf" value="{{$.CSRF}}">
-                <label>Share with another peer
-                  <select name="device" required><option value="">Choose a device</option>{{range .Devices}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
-                </label>
-                <button name="action" value="add" type="submit">Share</button>
-              </form>
-              {{else}}<p class="metadata">{{if .Shared}}All added peers already have this folder.{{else}}Add a peer to share this folder.{{end}}</p>{{end}}
-              <details>
-                <summary>Delete folder</summary>
-                <form class="danger-form" method="post" action="/folders/{{.ID}}/delete">
+                </ul>
+                {{else}}<span class="cell-detail">Not shared with any peers yet.</span>{{end}}
+              </td>
+              {{if $.Editable}}
+              <td>
+                {{if .Devices}}
+                <form class="share-form" method="post" action="/folders/{{.ID}}/shares">
                   <input type="hidden" name="csrf" value="{{$.CSRF}}">
-                  <label>Type folder ID to confirm server-side file deletion<input name="confirm" autocomplete="off" required></label>
-                  <p>Server-side files will be permanently deleted; peer copies may remain.</p>
-                  <button type="submit">Delete folder</button>
+                  <label>Share with another peer<select name="device" required><option value="">Choose a device</option>{{range .Devices}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select></label>
+                  <button name="action" value="add" type="submit">Share</button>
                 </form>
-              </details>
-            </div>
-            {{end}}
-          </article>
-          {{else}}<p class="empty">No folders yet. {{if $.Editable}}<a href="#create-folder">Create one to start sharing files.</a>{{end}}</p>{{end}}
-        </section>
-        <section class="resource-list" aria-label="Peer devices for {{.Name}}">
-          <div class="list-heading"><h3>Peer devices</h3>{{if $.Editable}}<a href="#add-peer">Add peer</a>{{end}}</div>
-          {{range .Devices}}
-          <article class="resource">
-            <div class="resource-heading"><h4>{{.Name}}</h4>{{if .Status}}<span class="state state--{{.Status}}">{{.Status}}</span>{{end}}</div>
-            <span class="resource-id">{{.ID}}</span>
-            <p class="scan-time">Last seen: {{if .LastSeenTime}}<time datetime="{{.LastSeenTime}}">{{.LastSeen}}</time>{{else}}{{.LastSeen}}{{end}}</p>
-            {{if $.Editable}}
-            <details>
-              <summary>Remove device</summary>
-              <form class="danger-form" method="post" action="/devices/{{.ID}}/delete">
-                <input type="hidden" name="csrf" value="{{$.CSRF}}">
-                <p>Removing this device unshares it from all your folders; files on the peer are not deleted.</p>
-                <button type="submit">Remove device</button>
-              </form>
-            </details>
-            {{end}}
-          </article>
-          {{else}}<p class="empty">No peer devices yet. {{if $.Editable}}<a href="#add-peer">Add a device to connect.</a>{{end}}</p>{{end}}
-        </section>
+                {{else}}<span class="cell-detail">{{if .Shared}}All added peers already have this folder.{{else}}Add a peer to share this folder.{{end}}</span>{{end}}
+                <details>
+                  <summary>Delete folder</summary>
+                  <form class="danger-form" method="post" action="/folders/{{.ID}}/delete">
+                    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+                    <label>Type folder ID to confirm server-side file deletion<input name="confirm" autocomplete="off" required></label>
+                    <p>Server-side files will be permanently deleted; peer copies may remain.</p>
+                    <button type="submit">Delete folder</button>
+                  </form>
+                </details>
+              </td>
+              {{end}}
+            </tr>
+            {{else}}<tr><td class="table-empty" colspan="{{if $.Editable}}5{{else}}4{{end}}">No folders yet. {{if $.Editable}}<a href="#create-folder">Create one to start sharing files.</a>{{end}}</td></tr>{{end}}
+          </tbody>
+        </table>
       </div>
+      {{else}}
+      <div class="table-toolbar"><h3>Peer devices</h3>{{if $.Editable}}<a href="#add-peer">Add peer</a>{{end}}</div>
+      <div class="table-scroll" role="region" aria-label="Peer devices for {{.Name}}" tabindex="0">
+        <table class="data-table data-table--peers">
+          <caption class="sr-only">Peer devices for {{.Name}}</caption>
+          <thead><tr><th scope="col">Device</th><th scope="col">Connection</th><th scope="col">Last seen</th>{{if $.Editable}}<th scope="col">Actions</th>{{end}}</tr></thead>
+          <tbody>
+            {{range .Devices}}
+            <tr>
+              <th scope="row"><span class="cell-title">{{.Name}}</span><span class="resource-id">{{.ID}}</span></th>
+              <td><span class="state state--{{.Status}}">{{.Status}}</span></td>
+              <td>{{if .LastSeenTime}}<time datetime="{{.LastSeenTime}}">{{.LastSeen}}</time>{{else}}{{.LastSeen}}{{end}}</td>
+              {{if $.Editable}}
+              <td><details><summary>Remove device</summary><form class="danger-form" method="post" action="/devices/{{.ID}}/delete"><input type="hidden" name="csrf" value="{{$.CSRF}}"><p>Removing this device unshares it from all your folders; files on the peer are not deleted.</p><button type="submit">Remove device</button></form></details></td>
+              {{end}}
+            </tr>
+            {{else}}<tr><td class="table-empty" colspan="{{if $.Editable}}4{{else}}3{{end}}">No peer devices yet. {{if $.Editable}}<a href="#add-peer">Add a device to connect.</a>{{end}}</td></tr>{{end}}
+          </tbody>
+        </table>
+      </div>
+      {{end}}
+      <p class="table-hint">Scroll sideways to see all columns.</p>
     </section>
     {{else}}<p class="empty">No users have signed in yet.</p>{{end}}
     {{if .Editable}}
