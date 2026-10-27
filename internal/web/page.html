@@ -38,14 +38,14 @@
     .site-nav a { color: var(--muted); text-decoration: none; padding: .35rem 0; }
     .site-nav a[aria-current="page"] { color: var(--ink); font-weight: 700; border-bottom: 2px solid var(--harbor); }
     .site-nav form { margin: 0; }
+    .account-name { color: var(--ink); font-weight: 700; overflow-wrap: anywhere; }
     .text-button { border: 0; background: none; padding: .35rem 0; color: var(--muted); }
     .text-button:hover, .site-nav a:hover { color: var(--harbor); text-decoration: underline; }
     main { padding-block: clamp(2.5rem, 6vw, 5rem) 5rem; }
     .intro { display: grid; grid-template-columns: minmax(0, 1fr) minmax(17rem, 29rem); align-items: start; gap: clamp(1.5rem, 5vw, 5rem); margin-bottom: 3.25rem; }
     .intro--overview { display: block; max-width: 44rem; }
     h1, .owner-name { font-family: Georgia, "Times New Roman", serif; font-weight: 400; letter-spacing: -.035em; line-height: 1.08; }
-    h1 { font-size: clamp(2.7rem, 6vw, 5rem); margin: 0 0 1rem; }
-    .lede { color: var(--muted); font-size: 1.15rem; max-width: 34rem; margin: 0; }
+    h1 { font-size: clamp(2.1rem, 4vw, 3.25rem); margin: 0; }
     .server { background: var(--ink); color: #f5faf8; padding: 1.5rem 1.65rem; border-radius: .4rem; position: relative; overflow: hidden; }
     .server::before { content: ""; width: .55rem; height: .55rem; border-radius: 50%; background: #8ac8ad; position: absolute; top: 1.85rem; right: 1.65rem; box-shadow: 0 0 0 .35rem #8ac8ad25; }
     .server h2 { font-size: 1rem; margin: 0 1rem .45rem 0; }
@@ -147,6 +147,7 @@
       <nav class="site-nav" aria-label="Main navigation">
         <a href="/" {{if .Editable}}aria-current="page"{{end}}>My resources</a>
         {{if .IsAdmin}}<a href="/admin" {{if not .Editable}}aria-current="page"{{end}}>Overview</a>{{end}}
+        {{if .Editable}}<span class="account-name">{{.UserName}}</span>{{end}}
         <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="text-button" type="submit">Sign out</button></form>
       </nav>
     </div>
@@ -155,7 +156,6 @@
     <div class="intro {{if not .Editable}}intro--overview{{end}}">
       <div>
         <h1>{{.Title}}</h1>
-        {{if .Editable}}<p class="lede">Your folders and peers, connected through one shared Syncthing server.</p>{{else}}<p class="lede">A read-only view of each person's folders and peer devices.</p>{{end}}
       </div>
       {{if .Editable}}
       <aside class="server" aria-labelledby="server-heading">
@@ -172,13 +172,13 @@
     </nav>
     {{range .Groups}}
     <section class="owner" aria-label="Resources for {{.Name}}">
-      <h2 class="owner-name">{{.Name}}</h2>
+      {{if $.Editable}}<h2 class="sr-only">Your resources</h2>{{else}}<h2 class="owner-name">{{.Name}}</h2>{{end}}
       {{if eq $.Tab "folders"}}
       <div class="table-toolbar"><h3>Folders</h3>{{if $.Editable}}<a href="#create-folder">Create folder</a>{{end}}</div>
       <div class="table-scroll" role="region" aria-label="Folders for {{.Name}}" tabindex="0">
         <table class="data-table">
           <caption class="sr-only">Folders for {{.Name}}</caption>
-          <thead><tr><th scope="col">Folder</th><th scope="col">Group / subpath</th><th scope="col">Status</th><th scope="col">Shared with</th>{{if $.Editable}}<th scope="col">Actions</th>{{end}}</tr></thead>
+          <thead><tr><th scope="col">Folder</th><th scope="col">Group / subpath</th><th scope="col">Status</th><th scope="col">Shared with</th>{{if or $.Editable $.IsAdmin}}<th scope="col">Actions</th>{{end}}</tr></thead>
           <tbody>
             {{range .Folders}}
             <tr>
@@ -204,8 +204,9 @@
                 </ul>
                 {{else}}<span class="cell-detail">Not shared with any peers yet.</span>{{end}}
               </td>
-              {{if $.Editable}}
+              {{if or $.Editable $.IsAdmin}}
               <td>
+                {{if $.Editable}}
                 {{if .Devices}}
                 <form class="share-form" method="post" action="/folders/{{.ID}}/shares">
                   <input type="hidden" name="csrf" value="{{$.CSRF}}">
@@ -213,9 +214,10 @@
                   <button name="action" value="add" type="submit">Share</button>
                 </form>
                 {{else}}<span class="cell-detail">{{if .Shared}}All added peers already have this folder.{{else}}Add a peer to share this folder.{{end}}</span>{{end}}
+                {{end}}
                 <details>
                   <summary>Delete folder</summary>
-                  <form class="danger-form" method="post" action="/folders/{{.ID}}/delete">
+                  <form class="danger-form" method="post" action="{{if $.Editable}}/folders/{{.ID}}/delete{{else}}/admin/folders/{{.ID}}/delete{{end}}">
                     <input type="hidden" name="csrf" value="{{$.CSRF}}">
                     <label>Type folder ID to confirm server-side file deletion<input name="confirm" autocomplete="off" required></label>
                     <p>Server-side files will be permanently deleted; peer copies may remain.</p>
@@ -225,7 +227,7 @@
               </td>
               {{end}}
             </tr>
-            {{else}}<tr><td class="table-empty" colspan="{{if $.Editable}}5{{else}}4{{end}}">No folders yet. {{if $.Editable}}<a href="#create-folder">Create one to start sharing files.</a>{{end}}</td></tr>{{end}}
+            {{else}}<tr><td class="table-empty" colspan="{{if or $.Editable $.IsAdmin}}5{{else}}4{{end}}">No folders yet. {{if $.Editable}}<a href="#create-folder">Create one to start sharing files.</a>{{end}}</td></tr>{{end}}
           </tbody>
         </table>
       </div>

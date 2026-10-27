@@ -165,6 +165,10 @@ func (s *Store) FindUser(ctx context.Context, issuer, subject string) (User, err
 	return scanUser(s.db.QueryRowContext(ctx, `SELECT `+userColumns+` FROM users WHERE issuer=? AND subject=?`, issuer, subject))
 }
 
+func (s *Store) User(ctx context.Context, id string) (User, error) {
+	return scanUser(s.db.QueryRowContext(ctx, `SELECT `+userColumns+` FROM users WHERE id=?`, id))
+}
+
 func (s *Store) UpsertUser(ctx context.Context, issuer, subject, name, email string, allowRegistration bool) (User, error) {
 	if issuer == "" || subject == "" {
 		return User{}, fmt.Errorf("issuer and subject required")

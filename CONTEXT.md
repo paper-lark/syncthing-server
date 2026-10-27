@@ -25,5 +25,5 @@ The one user responsible for an external Syncthing device paired with the shared
 _Avoid_: Shared device owner
 
 **Admin**:
-A user who can view all users, folders, and sync status without changing another user's resources.
+A user who can view all users, folders, and sync status and delete any folder, including another user's. An admin cannot otherwise change another user's resources.
 _Avoid_: Superuser

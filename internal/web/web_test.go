@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -140,8 +141,8 @@ func TestDashboardAndAdminOmitPathsAndSecrets(t *testing.T) {
 		t.Fatalf("dashboard leaked ownership or path: %d %s", r.Code, r.Body.String())
 	}
 	r = serve(h, c, "GET", "/admin", nil)
-	if r.Code != 200 || !strings.Contains(r.Body.String(), "Bob files") || strings.Contains(r.Body.String(), bob.StorageArea) || strings.Contains(r.Body.String(), "/folders/bob-folder/delete") {
-		t.Fatalf("admin overview leaked path or write actions: %d %s", r.Code, r.Body.String())
+	if r.Code != 200 || !strings.Contains(r.Body.String(), "Bob files") || strings.Contains(r.Body.String(), bob.StorageArea) || !strings.Contains(r.Body.String(), `action="/admin/folders/bob-folder/delete"`) || strings.Contains(r.Body.String(), `action="/folders/bob-folder/shares"`) {
+		t.Fatalf("admin overview omitted deletion or exposed unrelated actions: %d %s", r.Code, r.Body.String())
 	}
 	r = serve(h, c, "GET", "/?tab=peers", nil)
 	if r.Code != 200 || !strings.Contains(r.Body.String(), "Alice laptop") || strings.Contains(r.Body.String(), "Bob laptop") || strings.Contains(r.Body.String(), "Alice files") || strings.Contains(r.Body.String(), alice.StorageArea) {
@@ -385,6 +386,133 @@ func TestCrossOwnerDeleteAndShareCannotModifyResources(t *testing.T) {
 	fs, e := db.UserFolders(context.Background(), bob.ID)
 	if e != nil || len(fs) != 1 {
 		t.Fatalf("other user's resources changed: %v %v", fs, e)
+	}
+}
+
+func TestAdminCanDeleteAnotherUsersFolder(t *testing.T) {
+	_, db, adminCookie := fixture(t)
+	alice, err := db.FindUser(context.Background(), "https://issuer.example", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob, err := db.UpsertUser(context.Background(), "https://issuer.example", "bob", "Bob", "b@example", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.CreateSession(context.Background(), "bob-session", bob.ID, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	bobCookie := &http.Cookie{Name: "session", Value: "bob-session"}
+	root := t.TempDir()
+	files, err := storage.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer files.Close()
+	path, err := files.Create(bob.StorageArea, "archive")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(path, "keep.txt"), []byte("data"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.CreateFolderDetails(context.Background(), store.Folder{ID: "bob-folder", UserID: bob.ID, Label: "Bob files", Subpath: "archive"}); err != nil {
+		t.Fatal(err)
+	}
+	var remote atomic.Bool
+	remote.Store(true)
+	var deletions atomic.Int32
+	var failDelete atomic.Bool
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/rest/system/status":
+			json.NewEncoder(w).Encode(map[string]string{"myID": "SERVER"})
+		case r.Method == "GET" && r.URL.Path == "/rest/config/folders/bob-folder" && remote.Load():
+			json.NewEncoder(w).Encode(syncthing.Folder{ID: "bob-folder", Label: "Bob files", Path: path, Type: "sendreceive", Devices: []syncthing.FolderDevice{{DeviceID: "SERVER"}}})
+		case r.Method == "GET" && r.URL.Path == "/rest/db/status":
+			json.NewEncoder(w).Encode(map[string]string{"state": "idle"})
+		case r.Method == "DELETE" && r.URL.Path == "/rest/config/folders/bob-folder":
+			if failDelete.Load() {
+				http.Error(w, "daemon unavailable", 500)
+				return
+			}
+			if _, err := os.Stat(filepath.Join(path, "keep.txt")); err != nil {
+				t.Errorf("server files removed before daemon configuration: %v", err)
+			}
+			remote.Store(false)
+			deletions.Add(1)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer daemon.Close()
+	client, err := syncthing.NewClient(daemon.URL, "private-key", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := web.New(config.Config{BaseURL: "https://example.test", Admins: []config.Admin{{Issuer: alice.Issuer, Subject: alice.Subject}}}, db, client, nil, files)
+	form := url.Values{"csrf": {csrf(t, h, adminCookie)}, "confirm": {"bob-folder"}}
+	for _, tc := range []struct {
+		name, path string
+		cookie     *http.Cookie
+		form       url.Values
+		want       int
+	}{
+		{"anonymous", "/admin/folders/bob-folder/delete", nil, form, 401},
+		{"non-admin", "/admin/folders/bob-folder/delete", bobCookie, url.Values{"csrf": {csrf(t, h, bobCookie)}, "confirm": {"bob-folder"}}, 403},
+		{"owner-scoped route", "/folders/bob-folder/delete", adminCookie, form, 404},
+		{"missing CSRF", "/admin/folders/bob-folder/delete", adminCookie, url.Values{"confirm": {"bob-folder"}}, 403},
+		{"wrong confirmation", "/admin/folders/bob-folder/delete", adminCookie, url.Values{"csrf": {form.Get("csrf")}, "confirm": {"Bob files"}}, 400},
+	} {
+		r := serve(h, tc.cookie, "POST", tc.path, tc.form)
+		if r.Code != tc.want {
+			t.Errorf("%s: HTTP %d, want %d: %s", tc.name, r.Code, tc.want, r.Body.String())
+		}
+	}
+	if !remote.Load() || deletions.Load() != 0 {
+		t.Fatal("rejected deletion changed daemon configuration")
+	}
+	if _, err = os.Stat(filepath.Join(path, "keep.txt")); err != nil {
+		t.Fatalf("rejected deletion changed server files: %v", err)
+	}
+	r := serve(h, adminCookie, "POST", "/admin/folders/bob-folder/delete", form)
+	if r.Code != 303 || r.Header().Get("Location") != "/admin?tab=folders" {
+		t.Fatalf("admin delete: %d %s", r.Code, r.Body.String())
+	}
+	if remote.Load() || deletions.Load() != 1 {
+		t.Fatal("admin deletion left daemon folder configured")
+	}
+	if _, err = os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("admin deletion left owner files: %v", err)
+	}
+	if _, err = db.Folder(context.Background(), bob.ID, "bob-folder"); err != store.ErrNotFound {
+		t.Fatalf("admin deletion left owner record: %v", err)
+	}
+	if _, err = files.Create(bob.StorageArea, "archive"); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.CreateFolderDetails(context.Background(), store.Folder{ID: "bob-folder", UserID: bob.ID, Label: "Bob files", Subpath: "archive"}); err != nil {
+		t.Fatal(err)
+	}
+	remote.Store(true)
+	failDelete.Store(true)
+	r = serve(h, adminCookie, "POST", "/admin/folders/bob-folder/delete", form)
+	if r.Code != 503 {
+		t.Fatalf("failed admin deletion: %d %s", r.Code, r.Body.String())
+	}
+	ownerBlocked, _, err := db.WriteStatus(context.Background(), bob.ID)
+	if err != nil || !ownerBlocked {
+		t.Fatalf("failed admin deletion did not block owner: %t %v", ownerBlocked, err)
+	}
+	adminBlocked, _, err := db.WriteStatus(context.Background(), alice.ID)
+	if err != nil || adminBlocked {
+		t.Fatalf("failed admin deletion blocked actor: %t %v", adminBlocked, err)
+	}
+	if !remote.Load() {
+		t.Fatal("failed deletion removed daemon folder")
+	}
+	if _, err = os.Stat(path); err != nil {
+		t.Fatalf("failed deletion removed owner storage: %v", err)
 	}
 }
 

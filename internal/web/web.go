@@ -70,6 +70,7 @@ func New(cfg config.Config, users *store.Store, daemon *syncthing.Client, oidcPr
 	mux.HandleFunc("POST /devices", a.createDevice)
 	mux.HandleFunc("POST /folders/{id}/shares", a.share)
 	mux.HandleFunc("POST /folders/{id}/delete", a.deleteFolder)
+	mux.HandleFunc("POST /admin/folders/{id}/delete", a.adminDeleteFolder)
 	mux.HandleFunc("POST /devices/{id}/delete", a.deleteDevice)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -266,9 +267,9 @@ type group struct {
 	Blocked bool
 }
 type view struct {
-	Title, CSRF, ServerID, Tab string
-	IsAdmin, Editable          bool
-	Groups                     []group
+	Title, CSRF, ServerID, Tab, UserName string
+	IsAdmin, Editable                    bool
+	Groups                               []group
 }
 
 func resourceTab(r *http.Request) string {
@@ -453,7 +454,7 @@ func (a *app) dashboard(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "dashboard unavailable", 500)
 		return
 	}
-	v := view{Title: "My resources", CSRF: a.csrf(token), Tab: tab, IsAdmin: a.isAdmin(u), Editable: true, Groups: []group{g}}
+	v := view{Title: "My resources", CSRF: a.csrf(token), Tab: tab, UserName: u.Name, IsAdmin: a.isAdmin(u), Editable: true, Groups: []group{g}}
 	if a.daemon != nil {
 		v.ServerID, err = a.daemon.MyID(r.Context())
 		if err != nil {
@@ -537,6 +538,8 @@ func (a *app) operation(w http.ResponseWriter, r *http.Request, u store.User, ki
 	target := "/"
 	if kind == "create-device" || kind == "delete-device" {
 		target = "/?tab=peers"
+	} else if kind == "delete-folder" && strings.HasPrefix(r.URL.Path, "/admin/") {
+		target = "/admin?tab=folders"
 	}
 	http.Redirect(w, r, target, 303)
 }
@@ -777,13 +780,39 @@ func (a *app) deleteFolder(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	id := r.PathValue("id")
-	f, e := a.users.Folder(r.Context(), u.ID, id)
-	if e != nil {
-		fail(w, e)
+	f, err := a.users.Folder(r.Context(), u.ID, r.PathValue("id"))
+	if err != nil {
+		fail(w, err)
 		return
 	}
-	if r.PostForm.Get("confirm") != f.ID {
+	a.deleteFolderFor(w, r, u, f)
+}
+
+func (a *app) adminDeleteFolder(w http.ResponseWriter, r *http.Request) {
+	admin, _, ok := a.auth(w, r, true)
+	if !ok {
+		return
+	}
+	if !a.isAdmin(admin) {
+		http.Error(w, "forbidden", 403)
+		return
+	}
+	f, err := a.users.FolderOwner(r.Context(), r.PathValue("id"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	owner, err := a.users.User(r.Context(), f.UserID)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	a.deleteFolderFor(w, r, owner, f)
+}
+
+func (a *app) deleteFolderFor(w http.ResponseWriter, r *http.Request, u store.User, f store.Folder) {
+	id := f.ID
+	if r.PostForm.Get("confirm") != id {
 		http.Error(w, "type the folder ID to confirm deletion", 400)
 		return
 	}

@@ -33,7 +33,7 @@ func TestResourcePageHasAccessibleNavigationAndActions(t *testing.T) {
 	}
 	body := page.Body.String()
 	for _, fragment := range []string{
-		`name="viewport"`, `aria-current="page"`, `id="create-folder"`, `id="add-peer"`,
+		`name="viewport"`, `aria-current="page"`, `<span class="account-name">Alice</span>`, `id="create-folder"`, `id="add-peer"`,
 		`<dialog class="creation-dialog" id="folder-dialog"`, `<dialog class="creation-dialog" id="peer-dialog"`, `src="/assets/dialogs.js"`,
 		`action="/folders"`, `action="/devices"`, `action="/folders/photos/shares"`,
 		`action="/folders/photos/delete"`, `<table class="data-table">`, `<th scope="col">Shared with</th>`, `href="/?tab=folders" aria-current="page"`,
@@ -46,8 +46,8 @@ func TestResourcePageHasAccessibleNavigationAndActions(t *testing.T) {
 			t.Errorf("dashboard missing %q", fragment)
 		}
 	}
-	if strings.Contains(body, user.StorageArea) {
-		t.Fatal("dashboard exposed the private storage area")
+	if strings.Contains(body, user.StorageArea) || strings.Contains(body, `<h2 class="owner-name">Alice</h2>`) || strings.Contains(body, `class="lede"`) {
+		t.Fatal("dashboard exposed a private path or repeated the intro")
 	}
 
 	admin := serve(handler, cookie, "GET", "/admin", nil)
@@ -55,14 +55,14 @@ func TestResourcePageHasAccessibleNavigationAndActions(t *testing.T) {
 		t.Fatalf("admin overview: %d %s", admin.Code, admin.Body.String())
 	}
 	body = admin.Body.String()
-	for _, fragment := range []string{`Photos`, `Laptop`, `Shared with`, `Server last scan`, `Group: Family`, `Subpath: my-photos`, `action="/logout"`, `href="/admin?tab=folders" aria-current="page"`} {
+	for _, fragment := range []string{`Photos`, `Laptop`, `Shared with`, `Server last scan`, `Group: Family`, `Subpath: my-photos`, `action="/logout"`, `action="/admin/folders/photos/delete"`, `href="/admin?tab=folders" aria-current="page"`} {
 		if !strings.Contains(body, fragment) {
 			t.Errorf("overview missing %q", fragment)
 		}
 	}
-	for _, fragment := range []string{`action="/folders`, `action="/devices`, `id="create-folder"`, `id="add-peer"`, `src="/assets/dialogs.js"`, `<dialog`, `Server device ID`, user.StorageArea} {
+	for _, fragment := range []string{`action="/folders`, `action="/devices`, `id="create-folder"`, `id="add-peer"`, `src="/assets/dialogs.js"`, `<dialog`, `class="lede"`, `class="account-name"`, `Server device ID`, user.StorageArea} {
 		if strings.Contains(body, fragment) {
-			t.Errorf("overview leaked write controls or private data: %q", fragment)
+			t.Errorf("overview exposed unrelated write controls or private data: %q", fragment)
 		}
 	}
 
