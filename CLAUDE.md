@@ -18,6 +18,7 @@ Single-context layout: root `CONTEXT.md` and `docs/adr/`. See `docs/agents/domai
 - Scope as of 2026-10-25: The application and Dockerfile are implemented; homelab deployment and a Helm chart are deferred. See `README.md` for configuration and the PocketID check.
 - Isolation: Ownership is enforced by the wrapper, not Syncthing ACLs; keep the daemon GUI/API loopback-only and give both processes access to the same storage paths. This is not adversarial multi-tenancy.
 - Verification: Run `go test -race ./...` and `go vet ./...`; use `.claude/skills/verify/SKILL.md` for runtime checks.
+- Local Compose: After finishing and testing an application change, rebuild only the wrapper with `docker-compose up --build -d --no-deps wrapper` and smoke-test the live page at `http://127.0.0.1:48080/`. Leave Syncthing, the OIDC fixture, and volumes untouched. This applies to the local development stack, not other deployments.
 - Limits: PocketID login and data transfer with a live peer have not yet been verified; logout ends the app session but may leave the OIDC provider session active.
 
 

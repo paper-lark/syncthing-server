@@ -483,7 +483,7 @@ func (a *app) admin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tab := resourceTab(r)
-	v := view{Title: "Overview", CSRF: a.csrf(token), Tab: tab, IsAdmin: true}
+	v := view{Title: "Overview", CSRF: a.csrf(token), Tab: tab, UserName: u.Name, IsAdmin: true}
 	for _, user := range all {
 		g, e := a.group(r.Context(), user, tab)
 		if e != nil {

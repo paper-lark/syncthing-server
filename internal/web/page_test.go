@@ -55,12 +55,12 @@ func TestResourcePageHasAccessibleNavigationAndActions(t *testing.T) {
 		t.Fatalf("admin overview: %d %s", admin.Code, admin.Body.String())
 	}
 	body = admin.Body.String()
-	for _, fragment := range []string{`Photos`, `Laptop`, `Shared with`, `Server last scan`, `Group: Family`, `Subpath: my-photos`, `action="/logout"`, `action="/admin/folders/photos/delete"`, `href="/admin?tab=folders" aria-current="page"`} {
+	for _, fragment := range []string{`Photos`, `Laptop`, `Shared with`, `Server last scan`, `Group: Family`, `Subpath: my-photos`, `action="/logout"`, `<span class="account-name">Alice</span>`, `action="/admin/folders/photos/delete"`, `href="/admin?tab=folders" aria-current="page"`} {
 		if !strings.Contains(body, fragment) {
 			t.Errorf("overview missing %q", fragment)
 		}
 	}
-	for _, fragment := range []string{`action="/folders`, `action="/devices`, `id="create-folder"`, `id="add-peer"`, `src="/assets/dialogs.js"`, `<dialog`, `class="lede"`, `class="account-name"`, `Server device ID`, user.StorageArea} {
+	for _, fragment := range []string{`action="/folders`, `action="/devices`, `id="create-folder"`, `id="add-peer"`, `src="/assets/dialogs.js"`, `<dialog`, `class="lede"`, `Server device ID`, user.StorageArea} {
 		if strings.Contains(body, fragment) {
 			t.Errorf("overview exposed unrelated write controls or private data: %q", fragment)
 		}
