@@ -227,8 +227,8 @@ func TestCreateFolderAndDeleteRequiresTypedID(t *testing.T) {
 		t.Fatal(e)
 	}
 	page := serve(h, c, "GET", "/", nil)
-	if page.Code != 200 || !strings.Contains(page.Body.String(), "Private photos") || !strings.Contains(page.Body.String(), "Group: Family") || !strings.Contains(page.Body.String(), "Subpath: Private") || strings.Contains(page.Body.String(), u.StorageArea) {
-		t.Fatalf("folder details missing or private area exposed: %d %s", page.Code, page.Body.String())
+	if page.Code != 200 || !strings.Contains(page.Body.String(), "Private photos") || strings.Contains(page.Body.String(), "Group: Family") || strings.Contains(page.Body.String(), "Subpath: Private") || strings.Contains(page.Body.String(), u.StorageArea) {
+		t.Fatalf("folder label missing or hidden details exposed: %d %s", page.Code, page.Body.String())
 	}
 	for _, tc := range []struct {
 		id, subpath string

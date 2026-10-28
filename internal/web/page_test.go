@@ -17,6 +17,9 @@ func TestResourcePageHasAccessibleNavigationAndActions(t *testing.T) {
 	if err := db.CreateFolderDetails(context.Background(), store.Folder{ID: "photos", UserID: user.ID, Label: "Photos", Group: "Family", Subpath: "my-photos"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.CreateFolderDetails(context.Background(), store.Folder{ID: "work", UserID: user.ID, Label: "Work", Subpath: "work"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := db.CreateDevice(context.Background(), user.ID, "peer", "Laptop"); err != nil {
 		t.Fatal(err)
 	}
@@ -33,21 +36,32 @@ func TestResourcePageHasAccessibleNavigationAndActions(t *testing.T) {
 	}
 	body := page.Body.String()
 	for _, fragment := range []string{
-		`name="viewport"`, `aria-current="page"`, `<span class="account-name">Alice</span>`, `id="create-folder"`, `id="add-peer"`,
+		`name="viewport"`, `rel="icon" type="image/svg+xml" href="data:image/svg+xml,`, `Syncthing server</a>`,
+		`aria-current="page"`, `<summary class="account-name">Alice</summary>`, `<details class="account-fallback">`,
+		`id="account-dialog" aria-labelledby="account-dialog-heading"`, `id="create-folder"`, `id="add-peer"`,
 		`<dialog class="creation-dialog" id="folder-dialog"`, `<dialog class="creation-dialog" id="peer-dialog"`, `src="/assets/dialogs.js"`,
 		`action="/folders"`, `action="/devices"`, `action="/folders/photos/shares"`,
-		`action="/folders/photos/delete"`, `<table class="data-table">`, `<th scope="col">Shared with</th>`, `href="/?tab=folders" aria-current="page"`,
+		`action="/folders/photos/delete"`, `action="/folders/work/delete"`, `<button class="text-button delete-trigger" type="button">Delete folder</button>`,
+		`<details class="delete-fallback">`, `id="delete-dialog" aria-labelledby="delete-dialog-heading"`, `<table class="data-table">`, `<th scope="col">Shared with</th>`, `href="/?tab=folders" aria-current="page"`,
 		`name="csrf" value="`, `name="label"`, `name="group"`, `name="id"`, `name="subpath"`,
 		`name="device"`, `name="action" value="add"`, `name="action" value="remove"`,
-		`name="confirm"`, `Group: Family`, `Subpath: my-photos`, `Server last scan`,
+		`name="confirm"`, `Server last scan`,
 		`Shared with`, `name="device" value="peer"`, `Unshare Laptop from Photos`, `Sync: Unavailable`,
 	} {
 		if !strings.Contains(body, fragment) {
 			t.Errorf("dashboard missing %q", fragment)
 		}
 	}
-	if strings.Contains(body, user.StorageArea) || strings.Contains(body, `<h2 class="owner-name">Alice</h2>`) || strings.Contains(body, `class="lede"`) {
-		t.Fatal("dashboard exposed a private path or repeated the intro")
+	for _, fragment := range []string{user.StorageArea, `<h2 class="owner-name">Alice</h2>`, `class="lede"`, `Group / subpath`, `Group: Family`, `Subpath: my-photos`} {
+		if strings.Contains(body, fragment) {
+			t.Errorf("dashboard contains unwanted detail %q", fragment)
+		}
+	}
+	if navEnd, accountStart := strings.Index(body, `</nav>`), strings.Index(body, `<div class="account">`); navEnd < 0 || accountStart < navEnd {
+		t.Fatal("account control was not separate from navigation")
+	}
+	if strings.Count(body, `<button class="text-button delete-trigger" type="button">Delete folder</button>`) != 2 || strings.Count(body, `<details class="delete-fallback">`) != 2 || strings.Count(body, `id="delete-dialog"`) != 1 {
+		t.Fatal("each folder needs its own delete trigger and fallback, with one shared modal")
 	}
 
 	admin := serve(handler, cookie, "GET", "/admin", nil)
@@ -55,12 +69,15 @@ func TestResourcePageHasAccessibleNavigationAndActions(t *testing.T) {
 		t.Fatalf("admin overview: %d %s", admin.Code, admin.Body.String())
 	}
 	body = admin.Body.String()
-	for _, fragment := range []string{`Photos`, `Laptop`, `Shared with`, `Server last scan`, `Group: Family`, `Subpath: my-photos`, `action="/logout"`, `<span class="account-name">Alice</span>`, `action="/admin/folders/photos/delete"`, `href="/admin?tab=folders" aria-current="page"`} {
+	for _, fragment := range []string{`Photos`, `Laptop`, `Shared with`, `Server last scan`, `action="/logout"`, `<summary class="account-name">Alice</summary>`, `id="account-dialog"`, `src="/assets/dialogs.js"`, `action="/admin/folders/photos/delete"`, `action="/admin/folders/work/delete"`, `id="delete-dialog"`, `href="/admin?tab=folders" aria-current="page"`} {
 		if !strings.Contains(body, fragment) {
 			t.Errorf("overview missing %q", fragment)
 		}
 	}
-	for _, fragment := range []string{`action="/folders`, `action="/devices`, `id="create-folder"`, `id="add-peer"`, `src="/assets/dialogs.js"`, `<dialog`, `class="lede"`, `Server device ID`, user.StorageArea} {
+	if strings.Count(body, `<button class="text-button delete-trigger" type="button">Delete folder</button>`) != 2 || strings.Count(body, `<details class="delete-fallback">`) != 2 || strings.Count(body, `id="delete-dialog"`) != 1 {
+		t.Fatal("admin needs a delete trigger and fallback per folder, with one shared modal")
+	}
+	for _, fragment := range []string{`action="/folders`, `action="/devices`, `id="create-folder"`, `id="add-peer"`, `id="folder-dialog"`, `id="peer-dialog"`, `class="lede"`, `Server device ID`, `Group / subpath`, `Group: Family`, `Subpath: my-photos`, user.StorageArea} {
 		if strings.Contains(body, fragment) {
 			t.Errorf("overview exposed unrelated write controls or private data: %q", fragment)
 		}
@@ -71,7 +88,7 @@ func TestResourcePageHasAccessibleNavigationAndActions(t *testing.T) {
 		t.Fatalf("peer tab did not show only devices: %d %s", peers.Code, peers.Body.String())
 	}
 	adminPeers := serve(handler, cookie, "GET", "/admin?tab=peers", nil)
-	if adminPeers.Code != 200 || !strings.Contains(adminPeers.Body.String(), `href="/admin?tab=peers" aria-current="page"`) || !strings.Contains(adminPeers.Body.String(), `Laptop`) || strings.Contains(adminPeers.Body.String(), `action="/devices`) || strings.Contains(adminPeers.Body.String(), `Group: Family`) {
+	if adminPeers.Code != 200 || !strings.Contains(adminPeers.Body.String(), `href="/admin?tab=peers" aria-current="page"`) || !strings.Contains(adminPeers.Body.String(), `Laptop`) || strings.Contains(adminPeers.Body.String(), `action="/devices`) || strings.Contains(adminPeers.Body.String(), `action="/admin/folders/photos/delete"`) {
 		t.Fatalf("admin peer tab exposed write controls or wrong category: %d %s", adminPeers.Code, adminPeers.Body.String())
 	}
 }
@@ -80,7 +97,7 @@ func TestResourceTabsDefaultAndEmptyStates(t *testing.T) {
 	handler, _, cookie := fixture(t)
 	for _, path := range []string{"/", "/?tab=folders", "/?tab=unknown"} {
 		page := serve(handler, cookie, "GET", path, nil)
-		if page.Code != 200 || !strings.Contains(page.Body.String(), `href="/?tab=folders" aria-current="page"`) || !strings.Contains(page.Body.String(), `No folders yet.`) || strings.Contains(page.Body.String(), `No peer devices yet.`) {
+		if page.Code != 200 || !strings.Contains(page.Body.String(), `href="/?tab=folders" aria-current="page"`) || !strings.Contains(page.Body.String(), `class="table-empty" colspan="4">No folders yet.`) || strings.Contains(page.Body.String(), `No peer devices yet.`) {
 			t.Errorf("folder default at %s: %d %s", path, page.Code, page.Body.String())
 		}
 	}
@@ -100,7 +117,7 @@ func TestDialogScriptIsSameOriginAndFormsHaveFallback(t *testing.T) {
 	if page.Code != 200 || !strings.Contains(page.Header().Get("Content-Security-Policy"), "script-src 'self'") || strings.Contains(page.Header().Get("Content-Security-Policy"), "script-src 'unsafe-inline'") {
 		t.Fatalf("page does not allow only the local dialog script: %d %q", page.Code, page.Header().Get("Content-Security-Policy"))
 	}
-	for _, fragment := range []string{`<details class="create-fallback" id="create-folder">`, `<details class="create-fallback" id="add-peer">`, `aria-labelledby="folder-dialog-heading"`, `aria-labelledby="peer-dialog-heading"`} {
+	for _, fragment := range []string{`<details class="account-fallback">`, `<summary class="account-name">Alice</summary>`, `action="/logout"><input type="hidden" name="csrf"`, `aria-labelledby="account-dialog-heading"`, `<details class="create-fallback" id="create-folder">`, `<details class="create-fallback" id="add-peer">`, `aria-labelledby="folder-dialog-heading"`, `aria-labelledby="peer-dialog-heading"`, `id="delete-dialog" aria-labelledby="delete-dialog-heading"`} {
 		if !strings.Contains(page.Body.String(), fragment) {
 			t.Errorf("missing dialog or no-script fallback %q", fragment)
 		}

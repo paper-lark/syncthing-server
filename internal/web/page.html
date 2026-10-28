@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{.Title}} · Syncthing</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='11' fill='none' stroke='%23195c69' stroke-width='2.5'/%3E%3Ccircle cx='27' cy='4' r='3' fill='%23195c69'/%3E%3Ccircle cx='5' cy='28' r='3' fill='%23195c69'/%3E%3C/svg%3E">
   <style>
     :root {
       color-scheme: light;
@@ -34,11 +35,18 @@
     .brand-mark::before, .brand-mark::after { content: ""; position: absolute; width: .38rem; height: .38rem; border-radius: 50%; background: var(--harbor); }
     .brand-mark::before { top: -.28rem; right: -.27rem; }
     .brand-mark::after { bottom: -.28rem; left: -.27rem; }
-    .site-nav { display: flex; align-items: center; flex-wrap: wrap; gap: .35rem 1.3rem; }
+    .site-nav { display: flex; align-items: center; flex-wrap: wrap; gap: .35rem 1.3rem; margin-left: auto; }
     .site-nav a { color: var(--muted); text-decoration: none; padding: .35rem 0; }
     .site-nav a[aria-current="page"] { color: var(--ink); font-weight: 700; border-bottom: 2px solid var(--harbor); }
-    .site-nav form { margin: 0; }
-    .account-name { color: var(--ink); font-weight: 700; overflow-wrap: anywhere; }
+    .account { border-left: 1px solid var(--rule); padding-left: 1.3rem; }
+    .account-fallback { position: relative; margin: 0; }
+    .account-fallback summary { color: var(--ink); font-size: 1rem; font-weight: 700; text-decoration: none; list-style: none; max-width: 16rem; overflow-wrap: anywhere; }
+    .account-fallback summary::-webkit-details-marker { display: none; }
+    .account-panel { position: absolute; right: 0; top: 100%; z-index: 1; min-width: 10rem; padding: .8rem 1rem; background: var(--paper); border: 1px solid var(--rule); border-radius: .3rem; box-shadow: 0 .5rem 1.5rem #192d3520; }
+    .account-panel form { margin: 0; }
+    .account-dialog { width: min(22rem, calc(100% - 2rem)); }
+    .account-dialog h2 { margin: 0 0 1rem; font-size: 1.2rem; }
+    .account-dialog .account-panel { position: static; padding: 0; border: 0; box-shadow: none; }
     .text-button { border: 0; background: none; padding: .35rem 0; color: var(--muted); }
     .text-button:hover, .site-nav a:hover { color: var(--harbor); text-decoration: underline; }
     main { padding-block: clamp(2.5rem, 6vw, 5rem) 5rem; }
@@ -65,7 +73,7 @@
     .table-toolbar h3 { font-size: 1.15rem; margin: 0; }
     .table-scroll { overflow-x: auto; border-top: 2px solid var(--ink); }
     .table-hint { display: none; }
-    .data-table { width: 100%; min-width: 63rem; border-collapse: collapse; }
+    .data-table { width: 100%; min-width: 52rem; border-collapse: collapse; }
     .data-table--peers { min-width: 42rem; }
     .data-table th, .data-table td { padding: 1rem .9rem 1.2rem 0; vertical-align: top; text-align: left; overflow-wrap: anywhere; }
     .data-table thead th { font-size: .8rem; color: var(--muted); border-bottom: 1px solid var(--rule); }
@@ -86,8 +94,8 @@
     .shared-peer:first-child { padding-top: 0; }
     .peer-name { display: block; font-weight: 700; overflow-wrap: anywhere; }
     .peer-progress { display: block; color: var(--muted); font-size: .84rem; }
-    .unshare-button { min-height: 2.65rem; color: var(--danger); text-decoration: underline; text-underline-offset: .2em; }
-    .unshare-button:hover { color: var(--danger) !important; }
+    .unshare-button, .delete-trigger, .delete-fallback > summary { min-height: 2.65rem; color: var(--danger); text-decoration: underline; text-underline-offset: .2em; }
+    .unshare-button:hover, .delete-trigger:hover, .delete-fallback > summary:hover { color: var(--danger) !important; }
     .share-form { display: grid; gap: .5rem; margin-bottom: .8rem; }
     .share-form select { width: 100%; }
     .share-form button { width: fit-content; }
@@ -99,10 +107,18 @@
     details { margin-top: 1rem; font-size: .87rem; }
     summary { width: fit-content; color: var(--muted); text-decoration: underline; text-underline-offset: .2em; }
     .data-table details[open] { border-left: 2px solid var(--danger); padding-left: .9rem; }
+    .delete-trigger { display: none; }
+    .delete-modal-ready .delete-trigger { display: inline-block; }
+    .delete-modal-ready .delete-fallback { display: none; }
+    .delete-fallback > summary { display: inline-block; padding: .35rem 0; font-size: 1rem; list-style: none; }
+    .delete-fallback > summary::-webkit-details-marker { display: none; }
+    .danger-form button { border-color: var(--danger) !important; background: var(--danger) !important; }
+    .danger-form button:hover { background: #792929 !important; }
     .danger-form { margin-top: .9rem; display: grid; gap: .65rem; max-width: 30rem; }
     .danger-form p { color: var(--muted); margin: 0; }
-    .danger-form button { width: fit-content; border-color: var(--danger) !important; background: var(--danger) !important; }
-    .danger-form button:hover { background: #792929 !important; }
+    .danger-form button { width: fit-content; }
+    .delete-dialog .danger-form { margin-top: 0; }
+    .delete-dialog h2 { margin: 0 4rem 1.25rem 0; font-size: 1.2rem; overflow-wrap: anywhere; }
     .create { margin-top: clamp(3rem, 6vw, 5rem); padding-top: 1.25rem; border-top: 2px solid var(--ink); }
     .create > h2 { font-family: Georgia, "Times New Roman", serif; font-size: clamp(1.8rem, 3vw, 2.5rem); font-weight: 400; margin: .6rem 0 1.5rem; }
     .create-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; }
@@ -131,27 +147,38 @@
     }
     @media (max-width: 560px) {
       .shell { width: min(100% - 2rem, 76rem); }
-      .site-header .shell { align-items: start; flex-direction: column; gap: .35rem; padding-block: .9rem; }
-      .site-nav { gap: .4rem 1.15rem; }
+      .site-header .shell { flex-wrap: wrap; gap: .35rem 1rem; padding-block: .9rem; }
+      .site-nav { order: 3; width: 100%; margin-left: 0; gap: .4rem 1.15rem; }
+      .account { margin-left: auto; }
       main { padding-top: 2.5rem; }
     }
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }
     @media (forced-colors: active) { .state::before { border: 1px solid currentColor; } }
   </style>
-  {{if .Editable}}<script src="/assets/dialogs.js" defer></script>{{end}}
+  <script src="/assets/dialogs.js" defer></script>
 </head>
 <body>
   <header class="site-header">
     <div class="shell">
-      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true"></span>Syncthing / shared</a>
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true"></span>Syncthing server</a>
       <nav class="site-nav" aria-label="Main navigation">
         <a href="/" {{if .Editable}}aria-current="page"{{end}}>My resources</a>
         {{if .IsAdmin}}<a href="/admin" {{if not .Editable}}aria-current="page"{{end}}>Overview</a>{{end}}
-        <span class="account-name">{{.UserName}}</span>
-        <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="text-button" type="submit">Sign out</button></form>
       </nav>
+      <div class="account">
+        <details class="account-fallback">
+          <summary class="account-name">{{.UserName}}</summary>
+          <div class="account-panel">
+            <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="text-button" type="submit">Sign out</button></form>
+          </div>
+        </details>
+      </div>
     </div>
   </header>
+  <dialog class="creation-dialog account-dialog" id="account-dialog" aria-labelledby="account-dialog-heading">
+    <button class="text-button dialog-close" type="button" data-close-dialog>Close</button>
+    <h2 id="account-dialog-heading">Account</h2>
+  </dialog>
   <main class="shell">
     <div class="intro {{if not .Editable}}intro--overview{{end}}">
       <div>
@@ -178,12 +205,11 @@
       <div class="table-scroll" role="region" aria-label="Folders for {{.Name}}" tabindex="0">
         <table class="data-table">
           <caption class="sr-only">Folders for {{.Name}}</caption>
-          <thead><tr><th scope="col">Folder</th><th scope="col">Group / subpath</th><th scope="col">Status</th><th scope="col">Shared with</th>{{if or $.Editable $.IsAdmin}}<th scope="col">Actions</th>{{end}}</tr></thead>
+          <thead><tr><th scope="col">Folder</th><th scope="col">Status</th><th scope="col">Shared with</th>{{if or $.Editable $.IsAdmin}}<th scope="col">Actions</th>{{end}}</tr></thead>
           <tbody>
             {{range .Folders}}
             <tr>
               <th scope="row"><span class="cell-title">{{.Label}}</span><span class="resource-id">{{.ID}}</span></th>
-              <td><span class="cell-detail">Group: {{if .FolderGroup}}{{.FolderGroup}}{{else}}ungrouped{{end}}</span><span class="cell-detail">Subpath: {{.Subpath}}</span></td>
               <td>{{if .Status}}<span class="state state--{{.Status}}">{{.Status}}</span>{{else}}Unavailable{{end}}<span class="cell-detail">Server: {{.ServerCompletion}}</span>{{if .FolderTotal}}<span class="cell-detail">Folder total: {{.FolderTotal}}</span>{{end}}<span class="cell-detail">Server last scan: {{if .LastScanTime}}<time datetime="{{.LastScanTime}}">{{.LastScan}}</time>{{else}}{{.LastScan}}{{end}}</span></td>
               <td>
                 {{$folderID := .ID}}{{$folderLabel := .Label}}
@@ -215,7 +241,8 @@
                 </form>
                 {{else}}<span class="cell-detail">{{if .Shared}}All added peers already have this folder.{{else}}Add a peer to share this folder.{{end}}</span>{{end}}
                 {{end}}
-                <details>
+                <button class="text-button delete-trigger" type="button">Delete folder</button>
+                <details class="delete-fallback">
                   <summary>Delete folder</summary>
                   <form class="danger-form" method="post" action="{{if $.Editable}}/folders/{{.ID}}/delete{{else}}/admin/folders/{{.ID}}/delete{{end}}">
                     <input type="hidden" name="csrf" value="{{$.CSRF}}">
@@ -227,7 +254,7 @@
               </td>
               {{end}}
             </tr>
-            {{else}}<tr><td class="table-empty" colspan="{{if or $.Editable $.IsAdmin}}5{{else}}4{{end}}">No folders yet. {{if $.Editable}}<a href="#create-folder">Create one to start sharing files.</a>{{end}}</td></tr>{{end}}
+            {{else}}<tr><td class="table-empty" colspan="{{if or $.Editable $.IsAdmin}}4{{else}}3{{end}}">No folders yet. {{if $.Editable}}<a href="#create-folder">Create one to start sharing files.</a>{{end}}</td></tr>{{end}}
           </tbody>
         </table>
       </div>
@@ -292,6 +319,10 @@
     <dialog class="creation-dialog" id="folder-dialog" aria-labelledby="folder-dialog-heading"><button class="text-button dialog-close" type="button" data-close-dialog>Close</button></dialog>
     <dialog class="creation-dialog" id="peer-dialog" aria-labelledby="peer-dialog-heading"><button class="text-button dialog-close" type="button" data-close-dialog>Close</button></dialog>
     {{end}}
+    {{if eq .Tab "folders"}}<dialog class="creation-dialog delete-dialog" id="delete-dialog" aria-labelledby="delete-dialog-heading">
+      <button class="text-button dialog-close" type="button" data-close-dialog>Close</button>
+      <h2 id="delete-dialog-heading">Delete folder</h2>
+    </dialog>{{end}}
   </main>
 </body>
 </html>
