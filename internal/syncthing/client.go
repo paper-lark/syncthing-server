@@ -107,6 +107,33 @@ func (c *Client) do(ctx context.Context, method, endpoint string, query url.Valu
 
 func configPath(kind, id string) string { return "/rest/config/" + kind + "/" + url.PathEscape(id) }
 
+// Connectivity describes the daemon-wide discovery and connection settings.
+type Connectivity struct {
+	GlobalDiscovery bool `json:"globalAnnounceEnabled"`
+	Relays          bool `json:"relaysEnabled"`
+	NATTraversal    bool `json:"natEnabled"`
+}
+
+func (c *Client) Connectivity(ctx context.Context) (Connectivity, error) {
+	var options struct {
+		GlobalDiscovery *bool `json:"globalAnnounceEnabled"`
+		Relays          *bool `json:"relaysEnabled"`
+		NATTraversal    *bool `json:"natEnabled"`
+	}
+	if err := c.do(ctx, "GET", "/rest/config/options", nil, nil, &options); err != nil {
+		return Connectivity{}, err
+	}
+	if options.GlobalDiscovery == nil || options.Relays == nil || options.NATTraversal == nil {
+		return Connectivity{}, errors.New("syncthing connectivity options missing")
+	}
+	return Connectivity{*options.GlobalDiscovery, *options.Relays, *options.NATTraversal}, nil
+}
+
+// SetConnectivity patches only the three requested fields, preserving all other options.
+func (c *Client) SetConnectivity(ctx context.Context, enabled bool) error {
+	return c.do(ctx, "PATCH", "/rest/config/options", nil, Connectivity{enabled, enabled, enabled}, nil)
+}
+
 // Version and Status return daemon identity information; MyID extracts its device ID.
 type VersionInfo struct {
 	Version     string `json:"version"`

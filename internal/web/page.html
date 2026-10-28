@@ -119,6 +119,10 @@
     .danger-form button { width: fit-content; }
     .delete-dialog .danger-form { margin-top: 0; }
     .delete-dialog h2 { margin: 0 4rem 1.25rem 0; font-size: 1.2rem; overflow-wrap: anywhere; }
+    .connectivity { margin-bottom: 3rem; padding: 1.25rem 1.5rem; background: var(--paper); border: 1px solid var(--rule); border-radius: .4rem; }
+    .connectivity h2 { margin: 0 0 .4rem; font-size: 1.2rem; }
+    .connectivity p { margin: .4rem 0; color: var(--muted); }
+    .connectivity-actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1.25rem; }
     .create { margin-top: clamp(3rem, 6vw, 5rem); padding-top: 1.25rem; border-top: 2px solid var(--ink); }
     .create > h2 { font-family: Georgia, "Times New Roman", serif; font-size: clamp(1.8rem, 3vw, 2.5rem); font-weight: 400; margin: .6rem 0 1.5rem; }
     .create-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; }
@@ -193,6 +197,20 @@
       </aside>
       {{end}}
     </div>
+    {{if and .IsAdmin (not .Editable)}}
+    <section class="connectivity" aria-labelledby="connectivity-heading">
+      <h2 id="connectivity-heading">Discovery and connectivity</h2>
+      <p>Global discovery, relays, and NAT traversal on this shared server: <strong>{{.ConnectivityState}}</strong>.</p>
+      {{if eq .ConnectivityState "Mixed"}}<p>These settings currently differ. Choose an action to set all three together.</p>{{end}}
+      {{if eq .ConnectivityState "Unavailable"}}<p>Syncthing's settings could not be read. Try again later.</p>{{else}}
+      <form class="connectivity-actions" method="post" action="/admin/connectivity">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <button type="submit" name="action" value="disable">Disable all three</button>
+        <button type="submit" name="action" value="enable">Enable all three</button>
+      </form>
+      {{end}}
+    </section>
+    {{end}}
     <nav class="resource-tabs" aria-label="Resource categories">
       <a href="{{if .Editable}}/{{else}}/admin{{end}}?tab=folders" {{if eq .Tab "folders"}}aria-current="page"{{end}}>Folders</a>
       <a href="{{if .Editable}}/{{else}}/admin{{end}}?tab=peers" {{if eq .Tab "peers"}}aria-current="page"{{end}}>Peer devices</a>
