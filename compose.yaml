@@ -6,6 +6,7 @@ services:
       PUID: "0"
       PGID: "0"
       STGUIADDRESS: 127.0.0.1:8384
+      STGUIAPIKEY: ${STGUIAPIKEY:-test-only-syncthing-api-key}
     volumes:
       - syncthing-config:/var/syncthing
       - user-data:/data
@@ -28,20 +29,29 @@ services:
       - syncthing
     restart: unless-stopped
 
+  storage-init:
+    image: alpine:3.22
+    command: ["mkdir", "-p", "/data/users"]
+    volumes:
+      - user-data:/data
+
   wrapper:
     build: .
     user: "0:0"
-    entrypoint: ["/bin/sh", "/opt/local/start-wrapper.sh"]
     environment:
       APP_CONFIG: /opt/local/config.json
       APP_OIDC_CLIENT_SECRET: test-only-secret
+      APP_SYNCTHING_API_KEY: ${STGUIAPIKEY:-test-only-syncthing-api-key}
     volumes:
-      - syncthing-config:/var/syncthing:ro
       - user-data:/data
     network_mode: service:syncthing
     depends_on:
-      - syncthing
-      - oidc-fixture
+      syncthing:
+        condition: service_started
+      oidc-fixture:
+        condition: service_started
+      storage-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
 volumes:
