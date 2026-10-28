@@ -267,10 +267,39 @@ type group struct {
 	Devices []viewDevice
 	Blocked bool
 }
+type connectivityState uint8
+
+const (
+	connectivityUnavailable connectivityState = iota
+	connectivityEnabled
+	connectivityDisabled
+	connectivityMixed
+)
+
+func (s connectivityState) Label() string {
+	switch s {
+	case connectivityEnabled:
+		return "Enabled"
+	case connectivityDisabled:
+		return "Disabled"
+	case connectivityMixed:
+		return "Mixed"
+	default:
+		return "Unavailable"
+	}
+}
+
+func (s connectivityState) Available() bool {
+	return s == connectivityEnabled || s == connectivityDisabled || s == connectivityMixed
+}
+
+func (s connectivityState) Mixed() bool { return s == connectivityMixed }
+
 type view struct {
-	Title, CSRF, ServerID, Tab, UserName, ConnectivityState string
-	IsAdmin, Editable                                       bool
-	Groups                                                  []group
+	Title, CSRF, ServerID, Tab, UserName string
+	ConnectivityState                    connectivityState
+	IsAdmin, Editable                    bool
+	Groups                               []group
 }
 
 func resourceTab(r *http.Request) string {
@@ -484,7 +513,7 @@ func (a *app) admin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tab := resourceTab(r)
-	v := view{Title: "Overview", CSRF: a.csrf(token), Tab: tab, UserName: u.Name, IsAdmin: true, ConnectivityState: "Unavailable"}
+	v := view{Title: "Overview", CSRF: a.csrf(token), Tab: tab, UserName: u.Name, IsAdmin: true, ConnectivityState: connectivityUnavailable}
 	if a.daemon != nil {
 		options, e := a.daemon.Connectivity(r.Context())
 		if e != nil {
@@ -492,11 +521,11 @@ func (a *app) admin(w http.ResponseWriter, r *http.Request) {
 		} else {
 			switch {
 			case options.GlobalDiscovery && options.Relays && options.NATTraversal:
-				v.ConnectivityState = "Enabled"
+				v.ConnectivityState = connectivityEnabled
 			case !options.GlobalDiscovery && !options.Relays && !options.NATTraversal:
-				v.ConnectivityState = "Disabled"
+				v.ConnectivityState = connectivityDisabled
 			default:
-				v.ConnectivityState = "Mixed"
+				v.ConnectivityState = connectivityMixed
 			}
 		}
 	}

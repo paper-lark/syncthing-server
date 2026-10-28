@@ -200,9 +200,9 @@
     {{if and .IsAdmin (not .Editable)}}
     <section class="connectivity" aria-labelledby="connectivity-heading">
       <h2 id="connectivity-heading">Discovery and connectivity</h2>
-      <p>Global discovery, relays, and NAT traversal on this shared server: <strong>{{.ConnectivityState}}</strong>.</p>
-      {{if eq .ConnectivityState "Mixed"}}<p>These settings currently differ. Choose an action to set all three together.</p>{{end}}
-      {{if eq .ConnectivityState "Unavailable"}}<p>Syncthing's settings could not be read. Try again later.</p>{{else}}
+      <p>Global discovery, relays, and NAT traversal on this shared server: <strong>{{.ConnectivityState.Label}}</strong>.</p>
+      {{if .ConnectivityState.Mixed}}<p>These settings currently differ. Choose an action to set all three together.</p>{{end}}
+      {{if not .ConnectivityState.Available}}<p>Syncthing's settings could not be read. Try again later.</p>{{else}}
       <form class="connectivity-actions" method="post" action="/admin/connectivity">
         <input type="hidden" name="csrf" value="{{.CSRF}}">
         <button type="submit" name="action" value="disable">Disable all three</button>
