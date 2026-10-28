@@ -13,6 +13,12 @@ go build ./cmd/syncthing-server
 docker build -t syncthing-server .
 ```
 
+### Published Docker image
+
+Publishing a GitHub Release with a `vMAJOR.MINOR.PATCH` tag (optionally followed by a prerelease suffix, such as `v1.2.3-rc.1`) builds and pushes `ghcr.io/paper-lark/syncthing-server` for `linux/amd64` and `linux/arm64`. Stable releases receive the full version tag and `latest` (for example, `v1.2.3` and `latest`); prereleases receive only their full version tag. The workflow uses the repository's `GITHUB_TOKEN`, so no registry secret is needed.
+
+GitHub Container Registry packages may be private when first published. To allow unauthenticated pulls, open the package's settings on GitHub and change its visibility to **Public** after the first release. If a package with this name already exists, ensure this repository has Actions access to publish to it.
+
 ### Local Docker Compose
 
 ```sh
