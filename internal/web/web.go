@@ -66,6 +66,7 @@ func New(cfg config.Config, users *store.Store, daemon *syncthing.Client, oidcPr
 	mux.HandleFunc("POST /logout", a.logout)
 	mux.HandleFunc("GET /{$}", a.dashboard)
 	mux.HandleFunc("GET /admin", a.admin)
+	mux.HandleFunc("POST /admin/connectivity", a.adminConnectivity)
 	mux.HandleFunc("POST /folders", a.createFolder)
 	mux.HandleFunc("POST /devices", a.createDevice)
 	mux.HandleFunc("POST /folders/{id}/shares", a.share)
@@ -267,9 +268,9 @@ type group struct {
 	Blocked bool
 }
 type view struct {
-	Title, CSRF, ServerID, Tab, UserName string
-	IsAdmin, Editable                    bool
-	Groups                               []group
+	Title, CSRF, ServerID, Tab, UserName, ConnectivityState string
+	IsAdmin, Editable                                       bool
+	Groups                                                  []group
 }
 
 func resourceTab(r *http.Request) string {
@@ -483,7 +484,22 @@ func (a *app) admin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tab := resourceTab(r)
-	v := view{Title: "Overview", CSRF: a.csrf(token), Tab: tab, UserName: u.Name, IsAdmin: true}
+	v := view{Title: "Overview", CSRF: a.csrf(token), Tab: tab, UserName: u.Name, IsAdmin: true, ConnectivityState: "Unavailable"}
+	if a.daemon != nil {
+		options, e := a.daemon.Connectivity(r.Context())
+		if e != nil {
+			slog.Error("read Syncthing connectivity options failed", "error", e)
+		} else {
+			switch {
+			case options.GlobalDiscovery && options.Relays && options.NATTraversal:
+				v.ConnectivityState = "Enabled"
+			case !options.GlobalDiscovery && !options.Relays && !options.NATTraversal:
+				v.ConnectivityState = "Disabled"
+			default:
+				v.ConnectivityState = "Mixed"
+			}
+		}
+	}
 	for _, user := range all {
 		g, e := a.group(r.Context(), user, tab)
 		if e != nil {
@@ -497,6 +513,42 @@ func (a *app) admin(w http.ResponseWriter, r *http.Request) {
 		slog.Error("render overview failed", "error", err)
 	}
 }
+func (a *app) adminConnectivity(w http.ResponseWriter, r *http.Request) {
+	u, _, ok := a.auth(w, r, true)
+	if !ok {
+		return
+	}
+	if !a.isAdmin(u) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	actions := r.PostForm["action"]
+	if len(actions) != 1 {
+		http.Error(w, "invalid action", http.StatusBadRequest)
+		return
+	}
+	var enabled bool
+	switch actions[0] {
+	case "enable":
+		enabled = true
+	case "disable":
+		enabled = false
+	default:
+		http.Error(w, "invalid action", http.StatusBadRequest)
+		return
+	}
+	if a.daemon == nil {
+		http.Error(w, "connectivity settings unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if err := a.daemon.SetConnectivity(r.Context(), enabled); err != nil {
+		slog.Error("update Syncthing connectivity options failed", "error", err)
+		http.Error(w, "connectivity settings unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
 func fail(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrBlocked):
