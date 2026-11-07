@@ -103,7 +103,7 @@ func TestAdminConnectivity(t *testing.T) {
 
 	checkState := func(want string, hasActions bool) {
 		t.Helper()
-		res := serve(h, adminCookie, "GET", "/admin", nil)
+		res := serve(h, adminCookie, "GET", "/admin?tab=settings", nil)
 		if res.Code != 200 || !strings.Contains(res.Body.String(), "<strong>"+want+"</strong>") {
 			t.Fatalf("admin state %s: %d %s", want, res.Code, res.Body.String())
 		}
@@ -112,8 +112,14 @@ func TestAdminConnectivity(t *testing.T) {
 		}
 	}
 	checkState("Enabled", true)
-	if res := serve(h, adminCookie, "GET", "/", nil); res.Code != 200 || strings.Contains(res.Body.String(), "Discovery and connectivity") {
-		t.Fatalf("dashboard exposed admin setting: %d", res.Code)
+	for _, path := range []string{"/admin", "/admin?tab=peers"} {
+		res := serve(h, adminCookie, "GET", path, nil)
+		if res.Code != 200 || strings.Contains(res.Body.String(), "Discovery and connectivity") || strings.Contains(res.Body.String(), `action="/admin/connectivity"`) {
+			t.Fatalf("connectivity controls leaked into %s: %d", path, res.Code)
+		}
+	}
+	if res := serve(h, adminCookie, "GET", "/", nil); res.Code != 200 || strings.Contains(res.Body.String(), "Discovery and connectivity") || !strings.Contains(res.Body.String(), `<code data-device-id>SERVER</code><button class="text-button copy-id" type="button" data-copy-id aria-label="Copy server device ID">Copy</button>`) || strings.Contains(res.Body.String(), `?tab=settings`) {
+		t.Fatalf("dashboard exposed admin setting or omitted server copy control: %d %s", res.Code, res.Body.String())
 	}
 	mu.Lock()
 	settings["relaysEnabled"] = false
@@ -171,7 +177,7 @@ func TestAdminConnectivity(t *testing.T) {
 		if res.Code != want {
 			t.Fatalf("%s: got %d want %d: %s", action, res.Code, want, res.Body.String())
 		}
-		if want == http.StatusSeeOther && res.Header().Get("Location") != "/admin" {
+		if want == http.StatusSeeOther && res.Header().Get("Location") != "/admin?tab=settings" {
 			t.Fatalf("unexpected redirect: %s", res.Header().Get("Location"))
 		}
 	}

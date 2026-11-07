@@ -1,4 +1,11 @@
 (() => {
+  for (const button of document.querySelectorAll("[data-copy-id]")) {
+    button.addEventListener("click", () => {
+      const id = button.parentElement.querySelector("[data-device-id]").textContent;
+      if (navigator.clipboard?.writeText) navigator.clipboard.writeText(id).catch(() => {});
+    });
+  }
+
   const bindClose = (dialog, getOpener) => {
     dialog.querySelector("[data-close-dialog]").addEventListener("click", () => dialog.close());
     dialog.addEventListener("click", (event) => {

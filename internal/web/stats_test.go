@@ -47,7 +47,7 @@ func TestAdminSeesLocalFolderCompletionWithoutRawDaemonData(t *testing.T) {
 	}
 	handler := web.New(config.Config{BaseURL: "https://example.test", Admins: []config.Admin{{Issuer: alice.Issuer, Subject: alice.Subject}}}, db, client, nil, nil)
 	res := serve(handler, cookie, "GET", "/admin", nil)
-	if res.Code != 200 || !strings.Contains(res.Body.String(), "Server: 75.5% synced") || !strings.Contains(res.Body.String(), "Folder total: 512 bytes") || strings.Contains(res.Body.String(), "server needs:") || !strings.Contains(res.Body.String(), "Server last scan: Unavailable") || strings.Contains(res.Body.String(), `<th scope="col">Server last scan</th>`) || strings.Contains(res.Body.String(), "/private/server/path") || strings.Contains(res.Body.String(), "other-user") {
+	if res.Code != 200 || !strings.Contains(res.Body.String(), "Server: 75% synced") || !strings.Contains(res.Body.String(), "Folder total: 512 B") || strings.Contains(res.Body.String(), "server needs:") || !strings.Contains(res.Body.String(), "Server last scan: Unavailable") || strings.Contains(res.Body.String(), `<th scope="col">Server last scan</th>`) || strings.Contains(res.Body.String(), "/private/server/path") || strings.Contains(res.Body.String(), "other-user") {
 		t.Fatalf("statistics missing or raw data leaked: %d %s", res.Code, res.Body.String())
 	}
 }
