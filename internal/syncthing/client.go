@@ -129,9 +129,16 @@ func (c *Client) Connectivity(ctx context.Context) (Connectivity, error) {
 	return Connectivity{*options.GlobalDiscovery, *options.Relays, *options.NATTraversal}, nil
 }
 
-// SetConnectivity patches only the three requested fields, preserving all other options.
-func (c *Client) SetConnectivity(ctx context.Context, enabled bool) error {
-	return c.do(ctx, "PATCH", "/rest/config/options", nil, Connectivity{enabled, enabled, enabled}, nil)
+// ConnectivityUpdate contains only the options changed in the settings form.
+type ConnectivityUpdate struct {
+	GlobalDiscovery *bool `json:"globalAnnounceEnabled,omitempty"`
+	Relays          *bool `json:"relaysEnabled,omitempty"`
+	NATTraversal    *bool `json:"natEnabled,omitempty"`
+}
+
+// SetConnectivity patches changed options without rewriting other daemon settings.
+func (c *Client) SetConnectivity(ctx context.Context, update ConnectivityUpdate) error {
+	return c.do(ctx, "PATCH", "/rest/config/options", nil, update, nil)
 }
 
 // Version and Status return daemon identity information; MyID extracts its device ID.

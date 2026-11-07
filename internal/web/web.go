@@ -267,37 +267,10 @@ type group struct {
 	Devices []viewDevice
 	Blocked bool
 }
-type connectivityState uint8
-
-const (
-	connectivityUnavailable connectivityState = iota
-	connectivityEnabled
-	connectivityDisabled
-	connectivityMixed
-)
-
-func (s connectivityState) Label() string {
-	switch s {
-	case connectivityEnabled:
-		return "Enabled"
-	case connectivityDisabled:
-		return "Disabled"
-	case connectivityMixed:
-		return "Mixed"
-	default:
-		return "Unavailable"
-	}
-}
-
-func (s connectivityState) Available() bool {
-	return s == connectivityEnabled || s == connectivityDisabled || s == connectivityMixed
-}
-
-func (s connectivityState) Mixed() bool { return s == connectivityMixed }
-
 type view struct {
 	Title, CSRF, ServerID, Tab, UserName string
-	ConnectivityState                    connectivityState
+	Connectivity                         syncthing.Connectivity
+	ConnectivityAvailable                bool
 	IsAdmin, Editable                    bool
 	Groups                               []group
 }
@@ -548,20 +521,14 @@ func (a *app) admin(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("tab") == "settings" {
 		tab = "settings"
 	}
-	v := view{Title: "Overview", CSRF: a.csrf(token), Tab: tab, UserName: u.Name, IsAdmin: true, ConnectivityState: connectivityUnavailable}
+	v := view{Title: "Overview", CSRF: a.csrf(token), Tab: tab, UserName: u.Name, IsAdmin: true}
 	if tab == "settings" && a.daemon != nil {
 		options, e := a.daemon.Connectivity(r.Context())
 		if e != nil {
 			slog.Error("read Syncthing connectivity options failed", "error", e)
 		} else {
-			switch {
-			case options.GlobalDiscovery && options.Relays && options.NATTraversal:
-				v.ConnectivityState = connectivityEnabled
-			case !options.GlobalDiscovery && !options.Relays && !options.NATTraversal:
-				v.ConnectivityState = connectivityDisabled
-			default:
-				v.ConnectivityState = connectivityMixed
-			}
+			v.Connectivity = options
+			v.ConnectivityAvailable = true
 		}
 	}
 	if tab != "settings" {
@@ -584,6 +551,16 @@ func (a *app) admin(w http.ResponseWriter, r *http.Request) {
 		slog.Error("render overview failed", "error", err)
 	}
 }
+func connectivityValue(form url.Values, name, originalName string) (bool, bool, error) {
+	original := form[originalName]
+	selected := form[name]
+	if len(original) != 1 || (original[0] != "true" && original[0] != "false") || len(selected) > 1 || (len(selected) == 1 && selected[0] != "on") {
+		return false, false, errors.New("invalid connectivity setting")
+	}
+	enabled := len(selected) == 1
+	return enabled, enabled != (original[0] == "true"), nil
+}
+
 func (a *app) adminConnectivity(w http.ResponseWriter, r *http.Request) {
 	u, _, ok := a.auth(w, r, true)
 	if !ok {
@@ -593,29 +570,42 @@ func (a *app) adminConnectivity(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	actions := r.PostForm["action"]
-	if len(actions) != 1 {
-		http.Error(w, "invalid action", http.StatusBadRequest)
-		return
+	for name := range r.PostForm {
+		switch name {
+		case "csrf", "globalDiscovery", "relays", "natTraversal", "originalGlobalDiscovery", "originalRelays", "originalNATTraversal":
+		default:
+			http.Error(w, "invalid connectivity setting", http.StatusBadRequest)
+			return
+		}
 	}
-	var enabled bool
-	switch actions[0] {
-	case "enable":
-		enabled = true
-	case "disable":
-		enabled = false
-	default:
-		http.Error(w, "invalid action", http.StatusBadRequest)
-		return
+	var update syncthing.ConnectivityUpdate
+	for _, field := range []struct {
+		name, original string
+		target         **bool
+	}{
+		{"globalDiscovery", "originalGlobalDiscovery", &update.GlobalDiscovery},
+		{"relays", "originalRelays", &update.Relays},
+		{"natTraversal", "originalNATTraversal", &update.NATTraversal},
+	} {
+		enabled, changed, err := connectivityValue(r.PostForm, field.name, field.original)
+		if err != nil {
+			http.Error(w, "invalid connectivity setting", http.StatusBadRequest)
+			return
+		}
+		if changed {
+			*field.target = &enabled
+		}
 	}
 	if a.daemon == nil {
 		http.Error(w, "connectivity settings unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	if err := a.daemon.SetConnectivity(r.Context(), enabled); err != nil {
-		slog.Error("update Syncthing connectivity options failed", "error", err)
-		http.Error(w, "connectivity settings unavailable", http.StatusServiceUnavailable)
-		return
+	if update.GlobalDiscovery != nil || update.Relays != nil || update.NATTraversal != nil {
+		if err := a.daemon.SetConnectivity(r.Context(), update); err != nil {
+			slog.Error("update Syncthing connectivity options failed", "error", err)
+			http.Error(w, "connectivity settings unavailable", http.StatusServiceUnavailable)
+			return
+		}
 	}
 	http.Redirect(w, r, "/admin?tab=settings", http.StatusSeeOther)
 }

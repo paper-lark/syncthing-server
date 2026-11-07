@@ -126,7 +126,10 @@
     .connectivity { margin-bottom: 3rem; padding: 1.25rem 1.5rem; background: var(--paper); border: 1px solid var(--rule); border-radius: .4rem; }
     .connectivity h2 { margin: 0 0 .4rem; font-size: 1.2rem; }
     .connectivity p { margin: .4rem 0; color: var(--muted); }
-    .connectivity-actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1.25rem; }
+    .connectivity-options { display: grid; gap: 1rem; margin-top: 1.25rem; }
+    .connectivity-option { display: flex; align-items: center; gap: .7rem; width: fit-content; }
+    .connectivity input[type="checkbox"] { width: 1.2rem; height: 1.2rem; min-height: 0; margin: 0; padding: 0; accent-color: var(--harbor); }
+    .connectivity-options button { width: fit-content; margin-top: .3rem; }
     .create { margin-top: clamp(3rem, 6vw, 5rem); padding-top: 1.25rem; border-top: 2px solid var(--ink); }
     .create > h2 { font-family: Georgia, "Times New Roman", serif; font-size: clamp(1.8rem, 3vw, 2.5rem); font-weight: 400; margin: .6rem 0 1.5rem; }
     .create-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; }
@@ -208,14 +211,17 @@
     </nav>
     {{if eq .Tab "settings"}}
     <section class="connectivity" aria-labelledby="connectivity-heading">
-      <h2 id="connectivity-heading">Discovery and connectivity</h2>
-      <p>Global discovery, relays, and NAT traversal on this shared server: <strong>{{.ConnectivityState.Label}}</strong>.</p>
-      {{if .ConnectivityState.Mixed}}<p>These settings currently differ. Choose an action to set all three together.</p>{{end}}
-      {{if not .ConnectivityState.Available}}<p>Syncthing's settings could not be read. Try again later.</p>{{else}}
-      <form class="connectivity-actions" method="post" action="/admin/connectivity">
+      <h2 id="connectivity-heading">Connections</h2>
+      {{if not .ConnectivityAvailable}}<p>Syncthing's settings could not be read. Try again later.</p>{{else}}
+      <form class="connectivity-options" method="post" action="/admin/connectivity">
         <input type="hidden" name="csrf" value="{{.CSRF}}">
-        <button type="submit" name="action" value="disable">Disable all three</button>
-        <button type="submit" name="action" value="enable">Enable all three</button>
+        <input type="hidden" name="originalGlobalDiscovery" value="{{.Connectivity.GlobalDiscovery}}">
+        <input type="hidden" name="originalRelays" value="{{.Connectivity.Relays}}">
+        <input type="hidden" name="originalNATTraversal" value="{{.Connectivity.NATTraversal}}">
+        <label class="connectivity-option"><input type="checkbox" name="natTraversal" value="on" {{if .Connectivity.NATTraversal}}checked{{end}}>Enable NAT traversal</label>
+        <label class="connectivity-option"><input type="checkbox" name="globalDiscovery" value="on" {{if .Connectivity.GlobalDiscovery}}checked{{end}}>Global Discovery</label>
+        <label class="connectivity-option"><input type="checkbox" name="relays" value="on" {{if .Connectivity.Relays}}checked{{end}}>Enable Relaying</label>
+        <button type="submit">Save</button>
       </form>
       {{end}}
     </section>

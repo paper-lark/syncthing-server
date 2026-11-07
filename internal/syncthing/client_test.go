@@ -51,9 +51,13 @@ func TestClientVersionStatusAndMyID(t *testing.T) {
 	}
 }
 
+func boolPointer(value bool) *bool { return &value }
+
 func TestConnectivityPatchesOnlyRequestedOptions(t *testing.T) {
 	options := map[string]any{"globalAnnounceEnabled": true, "relaysEnabled": false, "natEnabled": true, "localAnnounceEnabled": true, "listenAddresses": []any{"tcp://0.0.0.0:22000"}}
 	patches := 0
+	var wantKey string
+	var wantValue bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-API-Key") != "secret" || r.URL.Path != "/gui/rest/config/options" {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL)
@@ -72,13 +76,11 @@ func TestConnectivityPatchesOnlyRequestedOptions(t *testing.T) {
 				t.Error(err)
 				return
 			}
-			if len(patch) != 3 {
-				t.Errorf("unexpected patch: %v", patch)
+			value, present := patch[wantKey]
+			if len(patch) != 1 || !present || value != wantValue {
+				t.Errorf("unexpected patch: %v, want %s=%t", patch, wantKey, wantValue)
 			}
 			for key, value := range patch {
-				if key != "globalAnnounceEnabled" && key != "relaysEnabled" && key != "natEnabled" {
-					t.Errorf("unexpected patched field: %s", key)
-				}
 				options[key] = value
 			}
 			patches++
@@ -97,16 +99,26 @@ func TestConnectivityPatchesOnlyRequestedOptions(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(state, syncthing.Connectivity{GlobalDiscovery: true, Relays: false, NATTraversal: true}) {
 		t.Fatalf("initial state: %+v %v", state, err)
 	}
-	for _, enabled := range []bool{false, true} {
-		if err := client.SetConnectivity(ctx, enabled); err != nil {
+	for _, tc := range []struct {
+		key    string
+		value  bool
+		update syncthing.ConnectivityUpdate
+		want   syncthing.Connectivity
+	}{
+		{"globalAnnounceEnabled", false, syncthing.ConnectivityUpdate{GlobalDiscovery: boolPointer(false)}, syncthing.Connectivity{false, false, true}},
+		{"relaysEnabled", true, syncthing.ConnectivityUpdate{Relays: boolPointer(true)}, syncthing.Connectivity{false, true, true}},
+		{"natEnabled", false, syncthing.ConnectivityUpdate{NATTraversal: boolPointer(false)}, syncthing.Connectivity{false, true, false}},
+	} {
+		wantKey, wantValue = tc.key, tc.value
+		if err := client.SetConnectivity(ctx, tc.update); err != nil {
 			t.Fatal(err)
 		}
 		state, err := client.Connectivity(ctx)
-		if err != nil || !reflect.DeepEqual(state, syncthing.Connectivity{GlobalDiscovery: enabled, Relays: enabled, NATTraversal: enabled}) {
-			t.Fatalf("updated state: %+v %v", state, err)
+		if err != nil || !reflect.DeepEqual(state, tc.want) {
+			t.Fatalf("updated state: %+v %v, want %+v", state, err, tc.want)
 		}
 	}
-	if patches != 2 || options["localAnnounceEnabled"] != true || !reflect.DeepEqual(options["listenAddresses"], []any{"tcp://0.0.0.0:22000"}) {
+	if patches != 3 || options["localAnnounceEnabled"] != true || !reflect.DeepEqual(options["listenAddresses"], []any{"tcp://0.0.0.0:22000"}) {
 		t.Fatalf("unrelated options changed: %v (%d patches)", options, patches)
 	}
 }
@@ -128,7 +140,7 @@ func TestConnectivityRejectsIncompleteResponseAndDaemonError(t *testing.T) {
 		t.Fatal("missing NAT setting treated as false")
 	}
 	var apiErr *syncthing.HTTPError
-	if err := client.SetConnectivity(context.Background(), false); !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusServiceUnavailable {
+	if err := client.SetConnectivity(context.Background(), syncthing.ConnectivityUpdate{GlobalDiscovery: boolPointer(false)}); !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("missing daemon failure: %v", err)
 	}
 }

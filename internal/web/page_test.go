@@ -93,7 +93,7 @@ func TestResourcePageHasAccessibleNavigationAndActions(t *testing.T) {
 		t.Fatalf("admin peer tab exposed write controls or wrong category: %d %s", adminPeers.Code, adminPeers.Body.String())
 	}
 	settings := serve(handler, cookie, "GET", "/admin?tab=settings", nil)
-	if settings.Code != 200 || !strings.Contains(settings.Body.String(), `href="/admin?tab=settings" aria-current="page"`) || !strings.Contains(settings.Body.String(), `Discovery and connectivity`) || strings.Contains(settings.Body.String(), `<table class="data-table`) || strings.Contains(settings.Body.String(), `No users have signed in yet.`) {
+	if settings.Code != 200 || !strings.Contains(settings.Body.String(), `href="/admin?tab=settings" aria-current="page"`) || !strings.Contains(settings.Body.String(), `<h2 id="connectivity-heading">Connections</h2>`) || strings.Contains(settings.Body.String(), `<table class="data-table`) || strings.Contains(settings.Body.String(), `No users have signed in yet.`) {
 		t.Fatalf("admin settings tab showed resources or omitted settings: %d %s", settings.Code, settings.Body.String())
 	}
 }
