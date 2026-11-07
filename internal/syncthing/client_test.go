@@ -51,6 +51,100 @@ func TestClientVersionStatusAndMyID(t *testing.T) {
 	}
 }
 
+func boolPointer(value bool) *bool { return &value }
+
+func TestConnectivityPatchesOnlyRequestedOptions(t *testing.T) {
+	options := map[string]any{"globalAnnounceEnabled": true, "relaysEnabled": false, "natEnabled": true, "localAnnounceEnabled": true, "listenAddresses": []any{"tcp://0.0.0.0:22000"}}
+	patches := 0
+	var wantKey string
+	var wantValue bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-API-Key") != "secret" || r.URL.Path != "/gui/rest/config/options" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		switch r.Method {
+		case "GET":
+			json.NewEncoder(w).Encode(options)
+		case "PATCH":
+			if r.Header.Get("Content-Type") != "application/json" {
+				t.Errorf("missing JSON content type")
+			}
+			var patch map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+				t.Error(err)
+				return
+			}
+			value, present := patch[wantKey]
+			if len(patch) != 1 || !present || value != wantValue {
+				t.Errorf("unexpected patch: %v, want %s=%t", patch, wantKey, wantValue)
+			}
+			for key, value := range patch {
+				options[key] = value
+			}
+			patches++
+		default:
+			t.Errorf("unexpected method: %s", r.Method)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	defer server.Close()
+	client, err := syncthing.NewClient(server.URL+"/gui", "secret", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	state, err := client.Connectivity(ctx)
+	if err != nil || !reflect.DeepEqual(state, syncthing.Connectivity{GlobalDiscovery: true, Relays: false, NATTraversal: true}) {
+		t.Fatalf("initial state: %+v %v", state, err)
+	}
+	for _, tc := range []struct {
+		key    string
+		value  bool
+		update syncthing.ConnectivityUpdate
+		want   syncthing.Connectivity
+	}{
+		{"globalAnnounceEnabled", false, syncthing.ConnectivityUpdate{GlobalDiscovery: boolPointer(false)}, syncthing.Connectivity{false, false, true}},
+		{"relaysEnabled", true, syncthing.ConnectivityUpdate{Relays: boolPointer(true)}, syncthing.Connectivity{false, true, true}},
+		{"natEnabled", false, syncthing.ConnectivityUpdate{NATTraversal: boolPointer(false)}, syncthing.Connectivity{false, true, false}},
+	} {
+		wantKey, wantValue = tc.key, tc.value
+		if err := client.SetConnectivity(ctx, tc.update); err != nil {
+			t.Fatal(err)
+		}
+		state, err := client.Connectivity(ctx)
+		if err != nil || !reflect.DeepEqual(state, tc.want) {
+			t.Fatalf("updated state: %+v %v, want %+v", state, err, tc.want)
+		}
+	}
+	if patches != 3 || options["localAnnounceEnabled"] != true || !reflect.DeepEqual(options["listenAddresses"], []any{"tcp://0.0.0.0:22000"}) {
+		t.Fatalf("unrelated options changed: %v (%d patches)", options, patches)
+	}
+}
+
+func TestConnectivityRejectsIncompleteResponseAndDaemonError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			io.WriteString(w, `{"globalAnnounceEnabled":false,"relaysEnabled":true}`)
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	client, err := syncthing.NewClient(server.URL, "secret", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Connectivity(context.Background()); err == nil {
+		t.Fatal("missing NAT setting treated as false")
+	}
+	var apiErr *syncthing.HTTPError
+	if err := client.SetConnectivity(context.Background(), syncthing.ConnectivityUpdate{GlobalDiscovery: boolPointer(false)}); !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("missing daemon failure: %v", err)
+	}
+}
+
 func TestFoldersAndDevicesPreserveUnknownConfiguration(t *testing.T) {
 	requests := []string{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

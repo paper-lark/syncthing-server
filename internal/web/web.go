@@ -66,6 +66,7 @@ func New(cfg config.Config, users *store.Store, daemon *syncthing.Client, oidcPr
 	mux.HandleFunc("POST /logout", a.logout)
 	mux.HandleFunc("GET /{$}", a.dashboard)
 	mux.HandleFunc("GET /admin", a.admin)
+	mux.HandleFunc("POST /admin/connectivity", a.adminConnectivity)
 	mux.HandleFunc("POST /folders", a.createFolder)
 	mux.HandleFunc("POST /devices", a.createDevice)
 	mux.HandleFunc("POST /folders/{id}/shares", a.share)
@@ -250,7 +251,7 @@ var page = template.Must(template.New("page").Parse(pageHTML))
 
 type viewFolder struct {
 	ID, Label, FolderGroup, Subpath, Status, ServerCompletion, FolderTotal string
-	LastScan, LastScanTime                                                 string
+	LastScan, LastScanTime, LastScanTitle                                  string
 	Devices                                                                []viewDevice
 	Shared                                                                 []viewSharedDevice
 }
@@ -258,7 +259,7 @@ type viewSharedDevice struct {
 	ID, Name, Status, Completion string
 }
 type viewDevice struct {
-	ID, Name, Status, LastSeen, LastSeenTime string
+	ID, Name, Status, LastSeen, LastSeenTime, LastSeenTitle string
 }
 type group struct {
 	Name    string
@@ -268,6 +269,8 @@ type group struct {
 }
 type view struct {
 	Title, CSRF, ServerID, Tab, UserName string
+	Connectivity                         syncthing.Connectivity
+	ConnectivityAvailable                bool
 	IsAdmin, Editable                    bool
 	Groups                               []group
 }
@@ -288,38 +291,75 @@ func (a *app) isAdmin(u store.User) bool {
 	return false
 }
 
-func folderLastScan(raw json.RawMessage) (string, string) {
+func relativeTime(when, now time.Time) string {
+	elapsed := now.Sub(when)
+	if elapsed < time.Minute {
+		return "just now"
+	}
+	for _, unit := range []struct {
+		name     string
+		duration time.Duration
+	}{{"day", 24 * time.Hour}, {"hour", time.Hour}, {"minute", time.Minute}} {
+		if elapsed >= unit.duration {
+			count := int64(elapsed / unit.duration)
+			name := unit.name
+			if count != 1 {
+				name += "s"
+			}
+			return fmt.Sprintf("%d %s ago", count, name)
+		}
+	}
+	return "just now"
+}
+
+func formatBytes(size int64) string {
+	if size < 1000 {
+		return fmt.Sprintf("%d B", size)
+	}
+	value := float64(size)
+	for _, unit := range []string{"KB", "MB", "GB", "TB", "PB", "EB"} {
+		value /= 1000
+		if value < 1000 || unit == "EB" {
+			return fmt.Sprintf("%.1f %s", value, unit)
+		}
+	}
+	return ""
+}
+
+func folderLastScan(raw json.RawMessage) (string, string, string) {
 	var stats struct {
 		LastScan string `json:"lastScan"`
 	}
 	if err := json.Unmarshal(raw, &stats); err != nil || stats.LastScan == "" {
-		return "Unavailable", ""
+		return "Unavailable", "", ""
 	}
 	when, err := time.Parse(time.RFC3339Nano, stats.LastScan)
 	if err != nil {
-		return "Unavailable", ""
+		return "Unavailable", "", ""
 	}
 	if when.IsZero() {
-		return "Not scanned yet", ""
+		return "Not scanned yet", "", ""
 	}
-	return when.UTC().Format("02 Jan 2006, 15:04 UTC"), when.UTC().Format(time.RFC3339)
+	absolute := when.UTC().Format("02 Jan 2006, 15:04 UTC")
+	return relativeTime(when, time.Now()), when.UTC().Format(time.RFC3339), absolute
 }
 
-func deviceLastSeen(raw json.RawMessage) (string, string) {
+func deviceLastSeen(raw json.RawMessage) (string, string, string) {
 	var stats struct {
 		LastSeen string `json:"lastSeen"`
 	}
 	if err := json.Unmarshal(raw, &stats); err != nil || stats.LastSeen == "" {
-		return "Unavailable", ""
+		return "Unavailable", "", ""
 	}
 	when, err := time.Parse(time.RFC3339Nano, stats.LastSeen)
 	if err != nil {
-		return "Unavailable", ""
+		return "Unavailable", "", ""
 	}
 	if !when.After(time.Unix(0, 0)) {
-		return "Never seen", ""
+		return "Never seen", "", ""
 	}
-	return when.UTC().Format("02 Jan 2006, 15:04 UTC"), when.UTC().Format(time.RFC3339)
+	absolute := when.UTC().Format("02 Jan 2006, 15:04 UTC")
+	return relativeTime(when, time.Now()), when.UTC().Format(time.RFC3339), absolute
 }
 
 func peerCompletion(raw json.RawMessage) string {
@@ -329,7 +369,7 @@ func peerCompletion(raw json.RawMessage) string {
 	if err := json.Unmarshal(raw, &result); err != nil || result.Completion == nil || math.IsNaN(*result.Completion) || *result.Completion < 0 || *result.Completion > 100 {
 		return "Unavailable"
 	}
-	return fmt.Sprintf("%.1f%% synced", math.Floor(*result.Completion*10)/10)
+	return fmt.Sprintf("%.0f%% synced", math.Floor(*result.Completion))
 }
 
 func (a *app) group(ctx context.Context, u store.User, tab string) (group, error) {
@@ -370,7 +410,7 @@ func (a *app) group(ctx context.Context, u store.User, tab string) (group, error
 	}
 	for _, d := range ds {
 		v := viewDevice{ID: d.ID, Name: d.Name, Status: connectionStatus(d.ID)}
-		v.LastSeen, v.LastSeenTime = deviceLastSeen(deviceStats[d.ID])
+		v.LastSeen, v.LastSeenTime, v.LastSeenTitle = deviceLastSeen(deviceStats[d.ID])
 		g.Devices = append(g.Devices, v)
 	}
 	if tab == "peers" {
@@ -388,7 +428,7 @@ func (a *app) group(ctx context.Context, u store.User, tab string) (group, error
 	}
 	for _, f := range fs {
 		v := viewFolder{ID: f.ID, Label: f.Label, FolderGroup: f.Group, Subpath: f.Subpath, ServerCompletion: "Unavailable"}
-		v.LastScan, v.LastScanTime = folderLastScan(folderStats[f.ID])
+		v.LastScan, v.LastScanTime, v.LastScanTitle = folderLastScan(folderStats[f.ID])
 		if a.daemon != nil {
 			raw, e := a.daemon.FolderStatus(ctx, f.ID)
 			if e != nil {
@@ -402,7 +442,7 @@ func (a *app) group(ctx context.Context, u store.User, tab string) (group, error
 				return g, e
 			}
 			if status.GlobalBytes != nil && *status.GlobalBytes >= 0 {
-				v.FolderTotal = fmt.Sprintf("%d bytes", *status.GlobalBytes)
+				v.FolderTotal = formatBytes(*status.GlobalBytes)
 			}
 			// Only render known status vocabulary, never arbitrary daemon JSON.
 			switch status.State {
@@ -477,26 +517,99 @@ func (a *app) admin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", 403)
 		return
 	}
-	all, err := a.users.AllUsers(r.Context())
-	if err != nil {
-		http.Error(w, "overview unavailable", 500)
-		return
-	}
 	tab := resourceTab(r)
+	if r.URL.Query().Get("tab") == "settings" {
+		tab = "settings"
+	}
 	v := view{Title: "Overview", CSRF: a.csrf(token), Tab: tab, UserName: u.Name, IsAdmin: true}
-	for _, user := range all {
-		g, e := a.group(r.Context(), user, tab)
+	if tab == "settings" && a.daemon != nil {
+		options, e := a.daemon.Connectivity(r.Context())
 		if e != nil {
+			slog.Error("read Syncthing connectivity options failed", "error", e)
+		} else {
+			v.Connectivity = options
+			v.ConnectivityAvailable = true
+		}
+	}
+	if tab != "settings" {
+		all, err := a.users.AllUsers(r.Context())
+		if err != nil {
 			http.Error(w, "overview unavailable", 500)
 			return
 		}
-		v.Groups = append(v.Groups, g)
+		for _, user := range all {
+			g, e := a.group(r.Context(), user, tab)
+			if e != nil {
+				http.Error(w, "overview unavailable", 500)
+				return
+			}
+			v.Groups = append(v.Groups, g)
+		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err = page.Execute(w, v); err != nil {
+	if err := page.Execute(w, v); err != nil {
 		slog.Error("render overview failed", "error", err)
 	}
 }
+func connectivityValue(form url.Values, name, originalName string) (bool, bool, error) {
+	original := form[originalName]
+	selected := form[name]
+	if len(original) != 1 || (original[0] != "true" && original[0] != "false") || len(selected) > 1 || (len(selected) == 1 && selected[0] != "on") {
+		return false, false, errors.New("invalid connectivity setting")
+	}
+	enabled := len(selected) == 1
+	return enabled, enabled != (original[0] == "true"), nil
+}
+
+func (a *app) adminConnectivity(w http.ResponseWriter, r *http.Request) {
+	u, _, ok := a.auth(w, r, true)
+	if !ok {
+		return
+	}
+	if !a.isAdmin(u) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	for name := range r.PostForm {
+		switch name {
+		case "csrf", "globalDiscovery", "relays", "natTraversal", "originalGlobalDiscovery", "originalRelays", "originalNATTraversal":
+		default:
+			http.Error(w, "invalid connectivity setting", http.StatusBadRequest)
+			return
+		}
+	}
+	var update syncthing.ConnectivityUpdate
+	for _, field := range []struct {
+		name, original string
+		target         **bool
+	}{
+		{"globalDiscovery", "originalGlobalDiscovery", &update.GlobalDiscovery},
+		{"relays", "originalRelays", &update.Relays},
+		{"natTraversal", "originalNATTraversal", &update.NATTraversal},
+	} {
+		enabled, changed, err := connectivityValue(r.PostForm, field.name, field.original)
+		if err != nil {
+			http.Error(w, "invalid connectivity setting", http.StatusBadRequest)
+			return
+		}
+		if changed {
+			*field.target = &enabled
+		}
+	}
+	if a.daemon == nil {
+		http.Error(w, "connectivity settings unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if update.GlobalDiscovery != nil || update.Relays != nil || update.NATTraversal != nil {
+		if err := a.daemon.SetConnectivity(r.Context(), update); err != nil {
+			slog.Error("update Syncthing connectivity options failed", "error", err)
+			http.Error(w, "connectivity settings unavailable", http.StatusServiceUnavailable)
+			return
+		}
+	}
+	http.Redirect(w, r, "/admin?tab=settings", http.StatusSeeOther)
+}
+
 func fail(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrBlocked):

@@ -47,6 +47,7 @@ func TestResourcePageHasAccessibleNavigationAndActions(t *testing.T) {
 		`name="device"`, `name="action" value="add"`, `name="action" value="remove"`,
 		`name="confirm"`, `Server last scan`,
 		`Shared with`, `name="device" value="peer"`, `Unshare Laptop from Photos`, `Sync: Unavailable`,
+		`data-device-id`, `href="/?tab=peers"`, `This server's device ID`,
 	} {
 		if !strings.Contains(body, fragment) {
 			t.Errorf("dashboard missing %q", fragment)
@@ -84,18 +85,22 @@ func TestResourcePageHasAccessibleNavigationAndActions(t *testing.T) {
 	}
 
 	peers := serve(handler, cookie, "GET", "/?tab=peers", nil)
-	if peers.Code != 200 || !strings.Contains(peers.Body.String(), `href="/?tab=peers" aria-current="page"`) || !strings.Contains(peers.Body.String(), `<table class="data-table data-table--peers">`) || !strings.Contains(peers.Body.String(), `action="/devices/peer/delete"`) || !strings.Contains(peers.Body.String(), `Last seen</th>`) || strings.Contains(peers.Body.String(), `action="/folders/photos/shares"`) {
+	if peers.Code != 200 || !strings.Contains(peers.Body.String(), `href="/?tab=peers" aria-current="page"`) || !strings.Contains(peers.Body.String(), `<table class="data-table data-table--peers">`) || !strings.Contains(peers.Body.String(), `action="/devices/peer/delete"`) || !strings.Contains(peers.Body.String(), `Last seen</th>`) || !strings.Contains(peers.Body.String(), `data-device-id>peer</span><button class="text-button copy-id" type="button" data-copy-id aria-label="Copy device ID for Laptop">Copy</button>`) || !strings.Contains(peers.Body.String(), `data-device-id>spare</span><button class="text-button copy-id" type="button" data-copy-id aria-label="Copy device ID for Tablet">Copy</button>`) || strings.Contains(peers.Body.String(), `action="/folders/photos/shares"`) || strings.Contains(peers.Body.String(), `?tab=settings`) {
 		t.Fatalf("peer tab did not show only devices: %d %s", peers.Code, peers.Body.String())
 	}
 	adminPeers := serve(handler, cookie, "GET", "/admin?tab=peers", nil)
-	if adminPeers.Code != 200 || !strings.Contains(adminPeers.Body.String(), `href="/admin?tab=peers" aria-current="page"`) || !strings.Contains(adminPeers.Body.String(), `Laptop`) || strings.Contains(adminPeers.Body.String(), `action="/devices`) || strings.Contains(adminPeers.Body.String(), `action="/admin/folders/photos/delete"`) {
+	if adminPeers.Code != 200 || !strings.Contains(adminPeers.Body.String(), `href="/admin?tab=peers" aria-current="page"`) || !strings.Contains(adminPeers.Body.String(), `Laptop`) || !strings.Contains(adminPeers.Body.String(), `aria-label="Copy device ID for Laptop"`) || strings.Contains(adminPeers.Body.String(), `action="/devices`) || strings.Contains(adminPeers.Body.String(), `action="/admin/folders/photos/delete"`) {
 		t.Fatalf("admin peer tab exposed write controls or wrong category: %d %s", adminPeers.Code, adminPeers.Body.String())
+	}
+	settings := serve(handler, cookie, "GET", "/admin?tab=settings", nil)
+	if settings.Code != 200 || !strings.Contains(settings.Body.String(), `href="/admin?tab=settings" aria-current="page"`) || !strings.Contains(settings.Body.String(), `<h2 id="connectivity-heading">Connections</h2>`) || strings.Contains(settings.Body.String(), `<table class="data-table`) || strings.Contains(settings.Body.String(), `No users have signed in yet.`) {
+		t.Fatalf("admin settings tab showed resources or omitted settings: %d %s", settings.Code, settings.Body.String())
 	}
 }
 
 func TestResourceTabsDefaultAndEmptyStates(t *testing.T) {
 	handler, _, cookie := fixture(t)
-	for _, path := range []string{"/", "/?tab=folders", "/?tab=unknown"} {
+	for _, path := range []string{"/", "/?tab=folders", "/?tab=settings", "/?tab=unknown"} {
 		page := serve(handler, cookie, "GET", path, nil)
 		if page.Code != 200 || !strings.Contains(page.Body.String(), `href="/?tab=folders" aria-current="page"`) || !strings.Contains(page.Body.String(), `class="table-empty" colspan="4">No folders yet.`) || strings.Contains(page.Body.String(), `No peer devices yet.`) {
 			t.Errorf("folder default at %s: %d %s", path, page.Code, page.Body.String())
@@ -123,7 +128,7 @@ func TestDialogScriptIsSameOriginAndFormsHaveFallback(t *testing.T) {
 		}
 	}
 	asset := serve(handler, nil, "GET", "/assets/dialogs.js", nil)
-	if asset.Code != 200 || !strings.HasPrefix(asset.Header().Get("Content-Type"), "application/javascript") || !strings.Contains(asset.Body.String(), "showModal") {
+	if asset.Code != 200 || !strings.HasPrefix(asset.Header().Get("Content-Type"), "application/javascript") || !strings.Contains(asset.Body.String(), "showModal") || !strings.Contains(asset.Body.String(), "navigator.clipboard.writeText") {
 		t.Fatalf("dialog script unavailable: %d %q", asset.Code, asset.Header().Get("Content-Type"))
 	}
 }

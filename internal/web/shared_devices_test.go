@@ -101,7 +101,7 @@ func TestFolderDisplaysOnlyOwnedSharesAndScopedTelemetry(t *testing.T) {
 		t.Fatalf("folder dashboard: %d %s", response.Code, response.Body.String())
 	}
 	body := response.Body.String()
-	for _, fragment := range []string{"Shared with", "Laptop", "Tablet", "Sync: 82.3% synced", "Server: 100.0% synced", "Folder total: 13 bytes", "disconnected", "Server last scan", "26 Oct 2026, 10:15 UTC", `datetime="2026-10-26T10:15:30Z"`, `name="device" value="online-peer"`, `name="device" value="offline-peer"`, `aria-label="Unshare Laptop from Album"`} {
+	for _, fragment := range []string{"Shared with", "Laptop", "Tablet", "Sync: 82% synced", "Server: 100% synced", "Folder total: 13 B", "disconnected", "Server last scan", `title="26 Oct 2026, 10:15 UTC"`, `datetime="2026-10-26T10:15:30Z"`, `name="device" value="online-peer"`, `name="device" value="offline-peer"`, `aria-label="Unshare Laptop from Album"`} {
 		if !strings.Contains(body, fragment) {
 			t.Errorf("missing owned share data %q", fragment)
 		}
@@ -119,7 +119,7 @@ func TestFolderDisplaysOnlyOwnedSharesAndScopedTelemetry(t *testing.T) {
 		t.Fatalf("peer dashboard: %d %s", peers.Code, peers.Body.String())
 	}
 	body = peers.Body.String()
-	for _, fragment := range []string{"Last seen</th>", "26 Oct 2026, 11:22 UTC", `datetime="2026-10-26T11:22:33Z"`, "Phone", "Spare tablet", "Never seen", "Unavailable"} {
+	for _, fragment := range []string{"Last seen</th>", `title="26 Oct 2026, 11:22 UTC"`, `datetime="2026-10-26T11:22:33Z"`, "Phone", "Spare tablet", "Never seen", "Unavailable"} {
 		if !strings.Contains(body, fragment) {
 			t.Errorf("missing owned peer data %q", fragment)
 		}

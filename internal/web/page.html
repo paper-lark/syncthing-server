@@ -58,11 +58,15 @@
     .server::before { content: ""; width: .55rem; height: .55rem; border-radius: 50%; background: #8ac8ad; position: absolute; top: 1.85rem; right: 1.65rem; box-shadow: 0 0 0 .35rem #8ac8ad25; }
     .server h2 { font-size: 1rem; margin: 0 1rem .45rem 0; }
     .server p { margin: 0 0 1rem; color: #d3e4e2; font-size: .93rem; }
-    .server code { display: block; overflow-wrap: anywhere; line-height: 1.65; color: #fff; }
+    .server code { overflow-wrap: anywhere; line-height: 1.65; color: #fff; }
     .server a { color: #d4f6ee; }
+    .device-id-row { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .7rem; }
+    .device-id-row .resource-id { margin: 0; }
+    .copy-id { min-height: 2.65rem; text-decoration: underline; text-underline-offset: .2em; }
+    .server .copy-id { color: #d4f6ee; }
     .server-link { display: inline-block; margin-top: 1rem; }
     code, .resource-id { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: .83rem; }
-    .resource-tabs { display: flex; gap: clamp(1.25rem, 4vw, 3rem); border-bottom: 1px solid var(--rule); margin: 0 0 2.5rem; }
+    .resource-tabs { display: flex; flex-wrap: wrap; gap: 0 clamp(1.25rem, 4vw, 3rem); border-bottom: 1px solid var(--rule); margin: 0 0 2.5rem; }
     .resource-tabs a { display: inline-block; padding: .85rem .15rem .8rem; margin-bottom: -1px; border-bottom: 3px solid transparent; font-size: 1.08rem; font-weight: 700; text-decoration: none; color: var(--muted); }
     .resource-tabs a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--harbor); }
     .resource-tabs a:hover { color: var(--harbor); }
@@ -119,6 +123,13 @@
     .danger-form button { width: fit-content; }
     .delete-dialog .danger-form { margin-top: 0; }
     .delete-dialog h2 { margin: 0 4rem 1.25rem 0; font-size: 1.2rem; overflow-wrap: anywhere; }
+    .connectivity { margin-bottom: 3rem; padding: 1.25rem 1.5rem; background: var(--paper); border: 1px solid var(--rule); border-radius: .4rem; }
+    .connectivity h2 { margin: 0 0 .4rem; font-size: 1.2rem; }
+    .connectivity p { margin: .4rem 0; color: var(--muted); }
+    .connectivity-options { display: grid; gap: 1rem; margin-top: 1.25rem; }
+    .connectivity-option { display: flex; align-items: center; gap: .7rem; width: fit-content; }
+    .connectivity input[type="checkbox"] { width: 1.2rem; height: 1.2rem; min-height: 0; margin: 0; padding: 0; accent-color: var(--harbor); }
+    .connectivity-options button { width: fit-content; margin-top: .3rem; }
     .create { margin-top: clamp(3rem, 6vw, 5rem); padding-top: 1.25rem; border-top: 2px solid var(--ink); }
     .create > h2 { font-family: Georgia, "Times New Roman", serif; font-size: clamp(1.8rem, 3vw, 2.5rem); font-weight: 400; margin: .6rem 0 1.5rem; }
     .create-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; }
@@ -188,7 +199,7 @@
       <aside class="server" aria-labelledby="server-heading">
         <h2 id="server-heading">This server's device ID</h2>
         <p>Add this server on your peer before sharing a folder.</p>
-        <code>{{.ServerID}}</code>
+        <div class="device-id-row"><code data-device-id>{{.ServerID}}</code>{{if .ServerID}}<button class="text-button copy-id" type="button" data-copy-id aria-label="Copy server device ID">Copy</button>{{end}}</div>
         <a class="server-link" href="#add-peer">Add a peer device</a>
       </aside>
       {{end}}
@@ -196,7 +207,25 @@
     <nav class="resource-tabs" aria-label="Resource categories">
       <a href="{{if .Editable}}/{{else}}/admin{{end}}?tab=folders" {{if eq .Tab "folders"}}aria-current="page"{{end}}>Folders</a>
       <a href="{{if .Editable}}/{{else}}/admin{{end}}?tab=peers" {{if eq .Tab "peers"}}aria-current="page"{{end}}>Peer devices</a>
+      {{if and .IsAdmin (not .Editable)}}<a href="/admin?tab=settings" {{if eq .Tab "settings"}}aria-current="page"{{end}}>Settings</a>{{end}}
     </nav>
+    {{if eq .Tab "settings"}}
+    <section class="connectivity" aria-labelledby="connectivity-heading">
+      <h2 id="connectivity-heading">Connections</h2>
+      {{if not .ConnectivityAvailable}}<p>Syncthing's settings could not be read. Try again later.</p>{{else}}
+      <form class="connectivity-options" method="post" action="/admin/connectivity">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <input type="hidden" name="originalGlobalDiscovery" value="{{.Connectivity.GlobalDiscovery}}">
+        <input type="hidden" name="originalRelays" value="{{.Connectivity.Relays}}">
+        <input type="hidden" name="originalNATTraversal" value="{{.Connectivity.NATTraversal}}">
+        <label class="connectivity-option"><input type="checkbox" name="natTraversal" value="on" {{if .Connectivity.NATTraversal}}checked{{end}}>Enable NAT traversal</label>
+        <label class="connectivity-option"><input type="checkbox" name="globalDiscovery" value="on" {{if .Connectivity.GlobalDiscovery}}checked{{end}}>Global Discovery</label>
+        <label class="connectivity-option"><input type="checkbox" name="relays" value="on" {{if .Connectivity.Relays}}checked{{end}}>Enable Relaying</label>
+        <button type="submit">Save</button>
+      </form>
+      {{end}}
+    </section>
+    {{else}}
     {{range .Groups}}
     <section class="owner" aria-label="Resources for {{.Name}}">
       {{if $.Editable}}<h2 class="sr-only">Your resources</h2>{{else}}<h2 class="owner-name">{{.Name}}</h2>{{end}}
@@ -210,7 +239,7 @@
             {{range .Folders}}
             <tr>
               <th scope="row"><span class="cell-title">{{.Label}}</span><span class="resource-id">{{.ID}}</span></th>
-              <td>{{if .Status}}<span class="state state--{{.Status}}">{{.Status}}</span>{{else}}Unavailable{{end}}<span class="cell-detail">Server: {{.ServerCompletion}}</span>{{if .FolderTotal}}<span class="cell-detail">Folder total: {{.FolderTotal}}</span>{{end}}<span class="cell-detail">Server last scan: {{if .LastScanTime}}<time datetime="{{.LastScanTime}}">{{.LastScan}}</time>{{else}}{{.LastScan}}{{end}}</span></td>
+              <td>{{if .Status}}<span class="state state--{{.Status}}">{{.Status}}</span>{{else}}Unavailable{{end}}<span class="cell-detail">Server: {{.ServerCompletion}}</span>{{if .FolderTotal}}<span class="cell-detail">Folder total: {{.FolderTotal}}</span>{{end}}<span class="cell-detail">Server last scan: {{if .LastScanTime}}<time datetime="{{.LastScanTime}}" title="{{.LastScanTitle}}">{{.LastScan}}</time>{{else}}{{.LastScan}}{{end}}</span></td>
               <td>
                 {{$folderID := .ID}}{{$folderLabel := .Label}}
                 {{if .Shared}}
@@ -267,9 +296,9 @@
           <tbody>
             {{range .Devices}}
             <tr>
-              <th scope="row"><span class="cell-title">{{.Name}}</span><span class="resource-id">{{.ID}}</span></th>
+              <th scope="row"><span class="cell-title">{{.Name}}</span><span class="device-id-row"><span class="resource-id" data-device-id>{{.ID}}</span><button class="text-button copy-id" type="button" data-copy-id aria-label="Copy device ID for {{.Name}}">Copy</button></span></th>
               <td><span class="state state--{{.Status}}">{{.Status}}</span></td>
-              <td>{{if .LastSeenTime}}<time datetime="{{.LastSeenTime}}">{{.LastSeen}}</time>{{else}}{{.LastSeen}}{{end}}</td>
+              <td>{{if .LastSeenTime}}<time datetime="{{.LastSeenTime}}" title="{{.LastSeenTitle}}">{{.LastSeen}}</time>{{else}}{{.LastSeen}}{{end}}</td>
               {{if $.Editable}}
               <td><details><summary>Remove device</summary><form class="danger-form" method="post" action="/devices/{{.ID}}/delete"><input type="hidden" name="csrf" value="{{$.CSRF}}"><p>Removing this device unshares it from all your folders; files on the peer are not deleted.</p><button type="submit">Remove device</button></form></details></td>
               {{end}}
@@ -282,6 +311,7 @@
       <p class="table-hint">Scroll sideways to see all columns.</p>
     </section>
     {{else}}<p class="empty">No users have signed in yet.</p>{{end}}
+    {{end}}
     {{if .Editable}}
     <section class="create" aria-labelledby="manage-heading">
       <h2 id="manage-heading">Manage your resources</h2>
