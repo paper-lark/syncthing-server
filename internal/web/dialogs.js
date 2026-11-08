@@ -1,8 +1,20 @@
 (() => {
   for (const button of document.querySelectorAll("[data-copy-id]")) {
-    button.addEventListener("click", () => {
+    const tooltip = document.createElement("span");
+    tooltip.className = "copy-tooltip";
+    tooltip.setAttribute("role", "status");
+    button.append(tooltip);
+    let timeout;
+    button.addEventListener("click", async () => {
       const id = button.parentElement.querySelector("[data-device-id]").textContent;
-      if (navigator.clipboard?.writeText) navigator.clipboard.writeText(id).catch(() => {});
+      try {
+        await navigator.clipboard.writeText(id);
+        clearTimeout(timeout);
+        tooltip.textContent = "Copied";
+        timeout = setTimeout(() => { tooltip.textContent = ""; }, 1800);
+      } catch (_) {
+        // Keep the confirmation hidden when clipboard access fails.
+      }
     });
   }
 
@@ -33,30 +45,35 @@
     bindClose(accountDialog, () => trigger);
   }
 
-  const deleteDialog = document.getElementById("delete-dialog");
-  const deleteTriggers = document.querySelectorAll(".delete-trigger");
-  if (deleteDialog && deleteTriggers.length && typeof deleteDialog.showModal === "function") {
+  const bindDangerDialog = (dialogID, triggerClass, readyClass, title, focusSelector) => {
+    const dialog = document.getElementById(dialogID);
+    const triggers = document.querySelectorAll(`.${triggerClass}`);
+    if (!dialog || !triggers.length || typeof dialog.showModal !== "function") return;
+
     let opener;
     let fallback;
     let form;
-    for (const trigger of deleteTriggers) {
+    for (const trigger of triggers) {
       trigger.addEventListener("click", () => {
         opener = trigger;
         fallback = trigger.nextElementSibling;
         form = fallback.querySelector(".danger-form");
-        deleteDialog.querySelector("h2").textContent = `Delete folder: ${trigger.closest("tr").querySelector(".cell-title").textContent}`;
-        deleteDialog.append(form);
-        deleteDialog.showModal();
-        form.querySelector('input[name="confirm"]').focus();
+        dialog.querySelector("h2").textContent = `${title}: ${trigger.closest("tr").querySelector(".cell-title").textContent}`;
+        dialog.append(form);
+        dialog.showModal();
+        (form.querySelector(focusSelector) || form.querySelector('button[type="submit"]')).focus();
       });
     }
-    deleteDialog.addEventListener("close", () => {
+    dialog.addEventListener("close", () => {
       form.reset();
       fallback.append(form);
     });
-    bindClose(deleteDialog, () => opener);
-    document.documentElement.classList.add("delete-modal-ready");
-  }
+    bindClose(dialog, () => opener);
+    document.documentElement.classList.add(readyClass);
+  };
+
+  bindDangerDialog("delete-dialog", "delete-trigger", "delete-modal-ready", "Delete folder", 'input[name="confirm"]');
+  bindDangerDialog("remove-dialog", "remove-trigger", "remove-modal-ready", "Remove device", 'button[type="submit"]');
 
   const entries = [
     ["create-folder", "folder-dialog"],

@@ -187,7 +187,7 @@ func TestAdminConnectivity(t *testing.T) {
 			t.Fatalf("connectivity controls leaked into %s: %d", path, res.Code)
 		}
 	}
-	if res := serve(h, adminCookie, "GET", "/", nil); res.Code != 200 || strings.Contains(res.Body.String(), `action="/admin/connectivity"`) || !strings.Contains(res.Body.String(), `<code data-device-id>SERVER</code><button class="text-button copy-id" type="button" data-copy-id aria-label="Copy server device ID">Copy</button>`) || strings.Contains(res.Body.String(), `?tab=settings`) {
+	if res := serve(h, adminCookie, "GET", "/", nil); res.Code != 200 || strings.Contains(res.Body.String(), `action="/admin/connectivity"`) || !strings.Contains(res.Body.String(), `<code data-device-id>SERVER</code><button class="text-button copy-id" type="button" data-copy-id aria-label="Copy server device ID"><svg`) || strings.Contains(res.Body.String(), `?tab=settings`) {
 		t.Fatalf("dashboard exposed admin setting or omitted server copy control: %d %s", res.Code, res.Body.String())
 	}
 	mu.Lock()

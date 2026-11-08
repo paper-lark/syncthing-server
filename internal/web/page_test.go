@@ -53,7 +53,7 @@ func TestResourcePageHasAccessibleNavigationAndActions(t *testing.T) {
 			t.Errorf("dashboard missing %q", fragment)
 		}
 	}
-	for _, fragment := range []string{user.StorageArea, `<h2 class="owner-name">Alice</h2>`, `class="lede"`, `Group / subpath`, `Group: Family`, `Subpath: my-photos`} {
+	for _, fragment := range []string{user.StorageArea, `<h2 class="owner-name">Alice</h2>`, `class="lede"`, `Group / subpath`, `Group: Family`, `Subpath: my-photos`, `>Copy</button>`, `Add a peer device`} {
 		if strings.Contains(body, fragment) {
 			t.Errorf("dashboard contains unwanted detail %q", fragment)
 		}
@@ -85,11 +85,22 @@ func TestResourcePageHasAccessibleNavigationAndActions(t *testing.T) {
 	}
 
 	peers := serve(handler, cookie, "GET", "/?tab=peers", nil)
-	if peers.Code != 200 || !strings.Contains(peers.Body.String(), `href="/?tab=peers" aria-current="page"`) || !strings.Contains(peers.Body.String(), `<table class="data-table data-table--peers">`) || !strings.Contains(peers.Body.String(), `action="/devices/peer/delete"`) || !strings.Contains(peers.Body.String(), `Last seen</th>`) || !strings.Contains(peers.Body.String(), `data-device-id>peer</span><button class="text-button copy-id" type="button" data-copy-id aria-label="Copy device ID for Laptop">Copy</button>`) || !strings.Contains(peers.Body.String(), `data-device-id>spare</span><button class="text-button copy-id" type="button" data-copy-id aria-label="Copy device ID for Tablet">Copy</button>`) || strings.Contains(peers.Body.String(), `action="/folders/photos/shares"`) || strings.Contains(peers.Body.String(), `?tab=settings`) {
+	if peers.Code != 200 || !strings.Contains(peers.Body.String(), `href="/?tab=peers" aria-current="page"`) || !strings.Contains(peers.Body.String(), `<table class="data-table data-table--peers">`) || !strings.Contains(peers.Body.String(), `action="/devices/peer/delete"`) || !strings.Contains(peers.Body.String(), `Last seen</th>`) || !strings.Contains(peers.Body.String(), `data-device-id>peer</span><button class="text-button copy-id" type="button" data-copy-id aria-label="Copy device ID for Laptop"><svg`) || !strings.Contains(peers.Body.String(), `data-device-id>spare</span><button class="text-button copy-id" type="button" data-copy-id aria-label="Copy device ID for Tablet"><svg`) || strings.Contains(peers.Body.String(), `action="/folders/photos/shares"`) || strings.Contains(peers.Body.String(), `?tab=settings`) {
 		t.Fatalf("peer tab did not show only devices: %d %s", peers.Code, peers.Body.String())
 	}
+	for _, fragment := range []string{`<button class="text-button remove-trigger" type="button">Remove device</button>`, `<details class="remove-fallback">`, `id="remove-dialog" aria-labelledby="remove-dialog-heading"`, `Removing this device unshares it from all your folders`} {
+		if !strings.Contains(peers.Body.String(), fragment) {
+			t.Errorf("peer tab missing %q", fragment)
+		}
+	}
+	if strings.Contains(peers.Body.String(), `>Copy</button>`) {
+		t.Error("peer copy buttons still contain visible text")
+	}
+	if strings.Count(peers.Body.String(), `<button class="text-button remove-trigger" type="button">Remove device</button>`) != 2 || strings.Count(peers.Body.String(), `<details class="remove-fallback">`) != 2 || strings.Count(peers.Body.String(), `id="remove-dialog"`) != 1 {
+		t.Fatal("each device needs a remove trigger and fallback, with one shared modal")
+	}
 	adminPeers := serve(handler, cookie, "GET", "/admin?tab=peers", nil)
-	if adminPeers.Code != 200 || !strings.Contains(adminPeers.Body.String(), `href="/admin?tab=peers" aria-current="page"`) || !strings.Contains(adminPeers.Body.String(), `Laptop`) || !strings.Contains(adminPeers.Body.String(), `aria-label="Copy device ID for Laptop"`) || strings.Contains(adminPeers.Body.String(), `action="/devices`) || strings.Contains(adminPeers.Body.String(), `action="/admin/folders/photos/delete"`) {
+	if adminPeers.Code != 200 || !strings.Contains(adminPeers.Body.String(), `href="/admin?tab=peers" aria-current="page"`) || !strings.Contains(adminPeers.Body.String(), `Laptop`) || !strings.Contains(adminPeers.Body.String(), `aria-label="Copy device ID for Laptop"`) || strings.Contains(adminPeers.Body.String(), `action="/devices`) || strings.Contains(adminPeers.Body.String(), `<button class="text-button remove-trigger"`) || strings.Contains(adminPeers.Body.String(), `id="remove-dialog"`) || strings.Contains(adminPeers.Body.String(), `action="/admin/folders/photos/delete"`) {
 		t.Fatalf("admin peer tab exposed write controls or wrong category: %d %s", adminPeers.Code, adminPeers.Body.String())
 	}
 	settings := serve(handler, cookie, "GET", "/admin?tab=settings", nil)
@@ -127,8 +138,12 @@ func TestDialogScriptIsSameOriginAndFormsHaveFallback(t *testing.T) {
 			t.Errorf("missing dialog or no-script fallback %q", fragment)
 		}
 	}
+	peers := serve(handler, cookie, "GET", "/?tab=peers", nil)
+	if !strings.Contains(peers.Body.String(), `id="remove-dialog" aria-labelledby="remove-dialog-heading"`) {
+		t.Error("peer tab missing shared removal dialog")
+	}
 	asset := serve(handler, nil, "GET", "/assets/dialogs.js", nil)
-	if asset.Code != 200 || !strings.HasPrefix(asset.Header().Get("Content-Type"), "application/javascript") || !strings.Contains(asset.Body.String(), "showModal") || !strings.Contains(asset.Body.String(), "navigator.clipboard.writeText") {
+	if asset.Code != 200 || !strings.HasPrefix(asset.Header().Get("Content-Type"), "application/javascript") || !strings.Contains(asset.Body.String(), "showModal") || !strings.Contains(asset.Body.String(), "bindDangerDialog(\"remove-dialog\"") || !strings.Contains(asset.Body.String(), "navigator.clipboard.writeText") || !strings.Contains(asset.Body.String(), `tooltip.textContent = "Copied"`) || !strings.Contains(asset.Body.String(), `tooltip.setAttribute("role", "status")`) {
 		t.Fatalf("dialog script unavailable: %d %q", asset.Code, asset.Header().Get("Content-Type"))
 	}
 }
