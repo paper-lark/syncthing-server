@@ -62,9 +62,10 @@
     .server a { color: #d4f6ee; }
     .device-id-row { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .7rem; }
     .device-id-row .resource-id { margin: 0; }
-    .copy-id { min-height: 2.65rem; text-decoration: underline; text-underline-offset: .2em; }
+    .copy-id { min-height: 2.65rem; display: inline-flex; align-items: center; position: relative; }
+    .copy-id svg { width: 1rem; height: 1rem; fill: currentColor; }
+    .copy-tooltip:not(:empty) { position: absolute; bottom: calc(100% + .2rem); left: 50%; transform: translateX(-50%); padding: .2rem .5rem; border-radius: .25rem; background: #d4f6ee; color: var(--ink); font-size: .78rem; font-weight: 700; white-space: nowrap; pointer-events: none; }
     .server .copy-id { color: #d4f6ee; }
-    .server-link { display: inline-block; margin-top: 1rem; }
     code, .resource-id { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: .83rem; }
     .resource-tabs { display: flex; flex-wrap: wrap; gap: 0 clamp(1.25rem, 4vw, 3rem); border-bottom: 1px solid var(--rule); margin: 0 0 2.5rem; }
     .resource-tabs a { display: inline-block; padding: .85rem .15rem .8rem; margin-bottom: -1px; border-bottom: 3px solid transparent; font-size: 1.08rem; font-weight: 700; text-decoration: none; color: var(--muted); }
@@ -98,8 +99,8 @@
     .shared-peer:first-child { padding-top: 0; }
     .peer-name { display: block; font-weight: 700; overflow-wrap: anywhere; }
     .peer-progress { display: block; color: var(--muted); font-size: .84rem; }
-    .unshare-button, .delete-trigger, .delete-fallback > summary { min-height: 2.65rem; color: var(--danger); text-decoration: underline; text-underline-offset: .2em; }
-    .unshare-button:hover, .delete-trigger:hover, .delete-fallback > summary:hover { color: var(--danger) !important; }
+    .unshare-button, .delete-trigger, .remove-trigger, .delete-fallback > summary, .remove-fallback > summary { min-height: 2.65rem; color: var(--danger); text-decoration: underline; text-underline-offset: .2em; }
+    .unshare-button:hover, .delete-trigger:hover, .remove-trigger:hover, .delete-fallback > summary:hover, .remove-fallback > summary:hover { color: var(--danger) !important; }
     .share-form { display: grid; gap: .5rem; margin-bottom: .8rem; }
     .share-form select { width: 100%; }
     .share-form button { width: fit-content; }
@@ -111,18 +112,18 @@
     details { margin-top: 1rem; font-size: .87rem; }
     summary { width: fit-content; color: var(--muted); text-decoration: underline; text-underline-offset: .2em; }
     .data-table details[open] { border-left: 2px solid var(--danger); padding-left: .9rem; }
-    .delete-trigger { display: none; }
-    .delete-modal-ready .delete-trigger { display: inline-block; }
-    .delete-modal-ready .delete-fallback { display: none; }
-    .delete-fallback > summary { display: inline-block; padding: .35rem 0; font-size: 1rem; list-style: none; }
-    .delete-fallback > summary::-webkit-details-marker { display: none; }
+    .delete-trigger, .remove-trigger { display: none; }
+    .delete-modal-ready .delete-trigger, .remove-modal-ready .remove-trigger { display: inline-block; }
+    .delete-modal-ready .delete-fallback, .remove-modal-ready .remove-fallback { display: none; }
+    .delete-fallback > summary, .remove-fallback > summary { display: inline-block; padding: .35rem 0; font-size: 1rem; list-style: none; }
+    .delete-fallback > summary::-webkit-details-marker, .remove-fallback > summary::-webkit-details-marker { display: none; }
     .danger-form button { border-color: var(--danger) !important; background: var(--danger) !important; }
     .danger-form button:hover { background: #792929 !important; }
     .danger-form { margin-top: .9rem; display: grid; gap: .65rem; max-width: 30rem; }
     .danger-form p { color: var(--muted); margin: 0; }
     .danger-form button { width: fit-content; }
-    .delete-dialog .danger-form { margin-top: 0; }
-    .delete-dialog h2 { margin: 0 4rem 1.25rem 0; font-size: 1.2rem; overflow-wrap: anywhere; }
+    .delete-dialog .danger-form, .remove-dialog .danger-form { margin-top: 0; }
+    .delete-dialog h2, .remove-dialog h2 { margin: 0 4rem 1.25rem 0; font-size: 1.2rem; overflow-wrap: anywhere; }
     .connectivity { margin-bottom: 3rem; padding: 1.25rem 1.5rem; background: var(--paper); border: 1px solid var(--rule); border-radius: .4rem; }
     .connectivity h2 { margin: 0 0 .4rem; font-size: 1.2rem; }
     .connectivity p { margin: .4rem 0; color: var(--muted); }
@@ -166,6 +167,7 @@
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }
     @media (forced-colors: active) { .state::before { border: 1px solid currentColor; } }
   </style>
+  <!-- Copy icon: Font Awesome Free 6.7.2, CC BY 4.0, © Fonticons, Inc. https://fontawesome.com/license/free -->
   <script src="/assets/dialogs.js" defer></script>
 </head>
 <body>
@@ -199,8 +201,7 @@
       <aside class="server" aria-labelledby="server-heading">
         <h2 id="server-heading">This server's device ID</h2>
         <p>Add this server on your peer before sharing a folder.</p>
-        <div class="device-id-row"><code data-device-id>{{.ServerID}}</code>{{if .ServerID}}<button class="text-button copy-id" type="button" data-copy-id aria-label="Copy server device ID">Copy</button>{{end}}</div>
-        <a class="server-link" href="#add-peer">Add a peer device</a>
+        <div class="device-id-row"><code data-device-id>{{.ServerID}}</code>{{if .ServerID}}<button class="text-button copy-id" type="button" data-copy-id aria-label="Copy server device ID">{{template "copy-icon" .}}</button>{{end}}</div>
       </aside>
       {{end}}
     </div>
@@ -296,11 +297,21 @@
           <tbody>
             {{range .Devices}}
             <tr>
-              <th scope="row"><span class="cell-title">{{.Name}}</span><span class="device-id-row"><span class="resource-id" data-device-id>{{.ID}}</span><button class="text-button copy-id" type="button" data-copy-id aria-label="Copy device ID for {{.Name}}">Copy</button></span></th>
+              <th scope="row"><span class="cell-title">{{.Name}}</span><span class="device-id-row"><span class="resource-id" data-device-id>{{.ID}}</span><button class="text-button copy-id" type="button" data-copy-id aria-label="Copy device ID for {{.Name}}">{{template "copy-icon" .}}</button></span></th>
               <td><span class="state state--{{.Status}}">{{.Status}}</span></td>
               <td>{{if .LastSeenTime}}<time datetime="{{.LastSeenTime}}" title="{{.LastSeenTitle}}">{{.LastSeen}}</time>{{else}}{{.LastSeen}}{{end}}</td>
               {{if $.Editable}}
-              <td><details><summary>Remove device</summary><form class="danger-form" method="post" action="/devices/{{.ID}}/delete"><input type="hidden" name="csrf" value="{{$.CSRF}}"><p>Removing this device unshares it from all your folders; files on the peer are not deleted.</p><button type="submit">Remove device</button></form></details></td>
+              <td>
+                <button class="text-button remove-trigger" type="button">Remove device</button>
+                <details class="remove-fallback">
+                  <summary>Remove device</summary>
+                  <form class="danger-form" method="post" action="/devices/{{.ID}}/delete">
+                    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+                    <p>Removing this device unshares it from all your folders; files on the peer are not deleted.</p>
+                    <button type="submit">Remove device</button>
+                  </form>
+                </details>
+              </td>
               {{end}}
             </tr>
             {{else}}<tr><td class="table-empty" colspan="{{if $.Editable}}4{{else}}3{{end}}">No peer devices yet. {{if $.Editable}}<a href="#add-peer">Add a device to connect.</a>{{end}}</td></tr>{{end}}
@@ -353,6 +364,11 @@
       <button class="text-button dialog-close" type="button" data-close-dialog>Close</button>
       <h2 id="delete-dialog-heading">Delete folder</h2>
     </dialog>{{end}}
+    {{if and .Editable (eq .Tab "peers")}}<dialog class="creation-dialog remove-dialog" id="remove-dialog" aria-labelledby="remove-dialog-heading">
+      <button class="text-button dialog-close" type="button" data-close-dialog>Close</button>
+      <h2 id="remove-dialog-heading">Remove device</h2>
+    </dialog>{{end}}
   </main>
 </body>
 </html>
+{{define "copy-icon"}}<svg viewBox="0 0 448 512" aria-hidden="true" focusable="false"><path d="M384 336l-192 0c-8.8 0-16-7.2-16-16l0-256c0-8.8 7.2-16 16-16l140.1 0L400 115.9 400 320c0 8.8-7.2 16-16 16zM192 384l192 0c35.3 0 64-28.7 64-64l0-204.1c0-12.7-5.1-24.9-14.1-33.9L366.1 14.1c-9-9-21.2-14.1-33.9-14.1L192 0c-35.3 0-64 28.7-64 64l0 256c0 35.3 28.7 64 64 64zM64 128c-35.3 0-64 28.7-64 64L0 448c0 35.3 28.7 64 64 64l192 0c35.3 0 64-28.7 64-64l0-32-48 0 0 32c0 8.8-7.2 16-16 16L64 464c-8.8 0-16-7.2-16-16l0-256c0-8.8 7.2-16 16-16l32 0 0-48-32 0z"/></svg>{{end}}
